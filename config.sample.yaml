@@ -1,0 +1,70 @@
+google_drive:
+  scopes:
+    - 'https://www.googleapis.com/auth/drive.readonly'
+    - 'https://www.googleapis.com/auth/drive.activity.readonly'
+  token:
+    client_id: 'xxxxxxxxxxxxx.apps.googleusercontent.com'
+    client_secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    refresh_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+pollers:
+  - name: '디스코드 알람용'
+    polling_interval: 60
+    page_size: 100
+    actions:
+    patterns:
+    ignore_patterns:
+    ignore_directories: false
+    targets:
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/방송중'
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/일본 애니메이션'
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/영화'
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/외국TV'
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/국내TV'
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/DATA/VOD원본'
+    dispatchers:
+      - class: DiscordDispatcher
+        webhook_id: 'xxxxxxxxxxxxx'
+        webhook_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  - name: '카비타 스캔용'
+    polling_interval: 120
+    page_size: 30
+    ignore_directories: true
+    patterns: [*]
+    targets:
+      - '{폴더ID}/mnt/gds2/GDRIVE/READING/만화'
+    actions:
+      - 'create'
+      - 'move'
+      - 'delete'
+    dispatchers:
+      - class: KavitaDispatcher
+        url: 'http://kavita:5000'
+        apikey: 'xxxxxxxxxxxxxxx'
+        mappings:
+  - name: 'gds_tool 방송용'
+    polling_interval: 60
+    page_size: 35
+    ignore_directories: true
+    targets:
+      - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/방송중/외국'
+    actions:
+      - 'create'
+      - 'move'
+    dispatchers:
+      - class: GDSToolDispatcher
+        url: 'http://flaskfarm:9999'
+        apikey: 'xxxxxxxxx'
+        mappings:
+          - '/mnt/gds/GDRIVE:/ROOT/GDRIVE'
+    ignore_patterns:
+      - '*.json'
+      - '*.yml'
+      - '*.yaml'
+      - '*.smi'
+      - '*.srt'
+      - '*.txt'
+      - '*.ass'
+      - '*/.git/*'
+      - '*.log.*'
+  
