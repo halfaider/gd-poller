@@ -3,3 +3,4 @@ __pycache__
 nohup.out
 config.yaml
 config.test.yaml
+README.html
