@@ -77,7 +77,8 @@ def main(*args: tuple, **kwds: dict):
                 actions=poller.get('actions'),
                 patterns=poller.get('patterns'),
                 ignore_patterns=poller.get('ignore_patterns'),
-                ignore_directories=poller.get('ignore_directories', True))
+                ignore_folder=poller.get('ignore_folder', True),
+                dispatch_interval=poller.get('dispatch_interval', 1))
             pollers.append(activity_poller)
 
         for poller in pollers:

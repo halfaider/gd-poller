@@ -14,7 +14,8 @@ pollers:
     actions:
     patterns:
     ignore_patterns:
-    ignore_directories: false
+    ignore_folder: false
+    dispatch_interval: 5
     targets:
       - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/방송중'
       - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/일본 애니메이션'
@@ -29,7 +30,7 @@ pollers:
   - name: '카비타 스캔용'
     polling_interval: 120
     page_size: 30
-    ignore_directories: true
+    ignore_folder: true
     patterns: [*]
     targets:
       - '{폴더ID}/mnt/gds2/GDRIVE/READING/만화'
@@ -45,7 +46,7 @@ pollers:
   - name: 'gds_tool 방송용'
     polling_interval: 60
     page_size: 35
-    ignore_directories: true
+    ignore_folder: true
     targets:
       - '{폴더ID}/mnt/cloud/gds/GDRIVE/VIDEO/방송중/외국'
     actions:
@@ -67,4 +68,3 @@ pollers:
       - '*.ass'
       - '*/.git/*'
       - '*.log.*'
-  

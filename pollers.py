@@ -19,7 +19,7 @@ class GoogleDrivePoller:
 
     def __init__(self, drive: GoogleDrive, dispatchers: list[Dispatcher] = None, targets: list = None, name: str = None,
                  polling_interval: int = 60, page_size: int = 100, actions: tuple = None,
-                 patterns: list = None, ignore_patterns: list = None, ignore_directories: bool = True):
+                 patterns: list = None, ignore_patterns: list = None, ignore_folder: bool = True, dispatch_interval: int = 1):
         self._drive = drive
         self._targets = targets
         self._name = name
@@ -29,7 +29,7 @@ class GoogleDrivePoller:
         self._dispatch_queue = queue.Queue()
         self._tasks = []
         self._dispatchers = dispatchers
-        self._ignore_directories = bool(ignore_directories)
+        self._ignore_folder = bool(ignore_folder)
         self._patterns = patterns if patterns else ['*']
         self._ignore_patterns = ignore_patterns if ignore_patterns else []
         self._actions = tuple(actions) if actions else (
@@ -46,6 +46,7 @@ class GoogleDrivePoller:
             'settingsChange',
             'appliedLabelChange'
         )
+        self._dispatch_interval = dispatch_interval
 
     @property
     def drive(self) -> GoogleDrive:
@@ -84,8 +85,8 @@ class GoogleDrivePoller:
         return self._actions
 
     @property
-    def ignore_directories(self) -> bool:
-        return self._ignore_directories
+    def ignore_folder(self) -> bool:
+        return self._ignore_folder
 
     @property
     def patterns(self) -> list:
@@ -98,6 +99,10 @@ class GoogleDrivePoller:
     @property
     def tasks(self) -> list[Thread]:
         return self._tasks
+
+    @property
+    def dispatch_interval(self) -> int:
+        return self._dispatch_interval
 
     def start(self) -> None:
         if self.event.is_set():
@@ -154,8 +159,8 @@ class ActivityPoller(GoogleDrivePoller):
                         data['is_folder'] = True
                     else:
                         data['is_folder'] = False
-                    if self.ignore_directories and data['is_folder']:
-                        logger.debug(f'Ignore this "directory": {data["path"]}')
+                    if self.ignore_folder and data['is_folder']:
+                        logger.debug(f'Ignore this "folder": {data["target"]}')
                         continue
                     traget_id = data['target'][1].partition('/')[-1]
                     data['path'] = self.drive.get_full_path(traget_id, data.get('ancestor'))
@@ -175,10 +180,15 @@ class ActivityPoller(GoogleDrivePoller):
                             # action 데이터에 removedParents가 없으면 출처를 알 수 없음
                             data['src_path'] = data['move_from'][0]
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
+                    data['poller'] = self.name
                     for dispatcher in self.dispatchers:
                         dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                # 큐에서 각 아이템을 꺼낸 후 sleep
+                for _ in range(self.dispatch_interval):
+                    time.sleep(1)
+            # 큐에서 아이템을 모두 꺼낸 후 sleep
             time.sleep(1)
         logger.info(f'Dispatching task ends: {self.name}')
 

@@ -238,7 +238,7 @@ class DiscordDispatcher(Dispatcher):
         embed = {
             'color': self.COLORS.get(data['action'], 'default'),
             'author': {
-                'name': 'GDPollers',
+                'name': data['poller'],
             },
             'title': data['target'][0],
             'description': f'# {data["action"].upper()}',
