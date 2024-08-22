@@ -13,7 +13,7 @@ from dispatchers import DummyDispatcher, DiscordDispatcher, PlexmateDispatcher, 
 from helpers import RedactedFormatter
 
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
 REDACTED_PATTERNS = (
     'apikey=(.{10})',
@@ -25,7 +25,6 @@ REDACTED_PATTERNS = (
 
 
 def set_logger(ff_logger: logging.Logger = None) -> None:
-    global logger
     if ff_logger:
         level = ff_logger.level
         handlers = ff_logger.handlers
@@ -37,13 +36,14 @@ def set_logger(ff_logger: logging.Logger = None) -> None:
         handlers = [
             stream_handler
         ]
-    logger.setLevel(level)
-    for handler in handlers:
-        logger.addHandler(handler)
+    for logger_name in [__name__, 'dispatchers', 'gd_api', 'helpers', 'pollers']:
+        logger_ = logging.getLogger(logger_name)
+        logger_.setLevel(level)
+        for handler in handlers:
+            logger_.addHandler(handler)
 
 
 def main(*args: tuple, **kwds: dict):
-    global logger
     pollers = []
     dispatcher_classes = {
         'DiscordDispatcher': DiscordDispatcher,
@@ -54,9 +54,9 @@ def main(*args: tuple, **kwds: dict):
         'RcloneDispatcher': RcloneDispatcher,
     }
     try:
+        set_logger(kwds.get('logger'))
         # ('LOAD', '/path/to/gd_poller/app.py')
         # (['app.py', '/path/to/...'],)
-        set_logger(kwds.get('logger'))
         if args[0] != 'LOAD' and len(args[0]) > 1:
             CONFIG_FILE = pathlib.Path(args[0][1])
         else:
