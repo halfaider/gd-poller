@@ -3,7 +3,7 @@ import functools
 import urllib.parse
 import traceback
 import pathlib
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import requests
 
@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class Dispatcher:
 
-    def __init__(self, *args, **kwds) -> None:
-        pass
+    def __init__(self, mappings: dict = None) -> None:
+        self.mappings = parse_mappings(mappings) if mappings else None
 
     def dispatch(self, data: dict) -> None:
         raise Exception('이 메소드를 구현하세요.')
@@ -31,11 +31,10 @@ class DummyDispatcher(Dispatcher):
 
 class KavitaDispatcher(Dispatcher):
 
-    def __init__(self, url: str, apikey: str, *args, mappings: dict = None, **kwds) -> None:
+    def __init__(self, url: str, apikey: str, *args: tuple, **kwds: dict) -> None:
         super(KavitaDispatcher, self).__init__(*args, **kwds)
         self.url = url.strip().strip('/')
         self.apikey = apikey.strip()
-        self.mappings = parse_mappings(mappings) if mappings else None
         self.token = None
 
     @property
@@ -102,7 +101,7 @@ class FlaskfarmDispatcher(Dispatcher):
 
     PACKAGE = 'system'
 
-    def __init__(self, url: str, apikey: str, *args, **kwds) -> None:
+    def __init__(self, url: str, apikey: str, *args: tuple, **kwds: dict) -> None:
         super(FlaskfarmDispatcher, self).__init__(*args, **kwds)
         self.url = url.strip().strip('/')
         self.apikey = apikey.strip()
@@ -129,10 +128,6 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
 
     PACKAGE = 'gds_tool'
 
-    def __init__(self, url: str, apikey: str, *args, mappings: dict = None, **kwds) -> None:
-        super(GDSToolDispatcher, self).__init__(*args, url, apikey, **kwds)
-        self.mappings = parse_mappings(mappings) if mappings else None
-
     def dispatch(self, data: dict) -> None:
         '''override'''
         match (data.get('action'), data.get('is_folder')):
@@ -158,10 +153,6 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
 class PlexmateDispatcher(FlaskfarmDispatcher):
 
     PACKAGE = 'plex_mate'
-
-    def __init__(self, url: str, apikey: str, *args, mappings: dict = None, **kwds) -> None:
-        super(PlexmateDispatcher, self).__init__(*args, url, apikey, **kwds)
-        self.mappings = parse_mappings(mappings) if mappings else None
 
     def dispatch(self, data: dict) -> None:
         '''override'''
@@ -191,7 +182,8 @@ class DiscordDispatcher(Dispatcher):
         'edit': '16776960',
     }
 
-    def __init__(self, webhook_id: str, webhook_token: str) -> None:
+    def __init__(self, webhook_id: str, webhook_token: str, *args: tuple, **kwds: dict) -> None:
+        super(DiscordDispatcher).__init__(*args, **kwds)
         self._webhook_id = webhook_id
         self._webhook_token = webhook_token
 
@@ -257,9 +249,8 @@ class DiscordDispatcher(Dispatcher):
 
 class RcloneDispatcher(Dispatcher):
 
-    def __init__(self, url: str, *args: tuple, mappings: dict = None, **kwds) -> None:
+    def __init__(self, url: str, *args: tuple, **kwds: dict) -> None:
         super(RcloneDispatcher, self).__init__(*args, **kwds)
-        logger.debug(url)
         url = urllib.parse.urlparse(url)
         if not url.netloc or not url.scheme:
             raise Exception(f'Rclone RC 리모트 주소를 입력하세요: {url}')
@@ -275,7 +266,6 @@ class RcloneDispatcher(Dispatcher):
             logger.error(traceback.format_exc())
             logger.error(f'url: {url}')
             raise e
-        self.mappings = parse_mappings(mappings) if mappings else None
 
     def dispatch(self, data: dict) -> None:
         '''override'''
@@ -357,3 +347,59 @@ class RcloneDispatcher(Dispatcher):
             if not result['result'].get(path) == 'OK':
                 break
         logger.debug(f'vfs/refresh result: {result}')
+
+
+class PlexDispatcher(Dispatcher):
+
+    def __init__(self, url: str, token: str, *args: tuple, **kwds: dict) -> None:
+        super(PlexDispatcher, self).__init__(*args, **kwds)
+        self.url = url.strip().strip('/')
+        self.token = token.strip()
+
+    def dispatch(self, data: dict) -> None:
+        '''override'''
+        self.scan(data['path'])
+
+    def api(func: callable) -> callable:
+        @functools.wraps(func)
+        def wrapper(self, *args: tuple, **kwds: dict) -> dict[str, Any]:
+            params: dict = func(self, *args, **kwds)
+            key = params.pop('key', '/identity')
+            method = params.pop('method', 'GET')
+            params['X-Plex-Token'] = self.token
+            headers = {'Accept': 'application/json'}
+            #logger.debug(f'{key}: {params}')
+            return parse_json_response(request(method, f'{self.url}{key}', params=params, headers=headers))
+        return wrapper
+
+    @api
+    def refresh(self, section: int, path: Optional[str] = None, force: bool = False) -> dict[str, str]:
+        params = {
+            'key': f'/library/sections/{section}/refresh',
+            'method': 'GET',
+        }
+        if force:
+            params['force'] = 1
+        if path:
+            params['path'] = path
+        return params
+
+    @api
+    def sections(self) -> dict[str, str]:
+        return {
+            'key': '/library/sections',
+            'method': 'GET'
+        }
+
+    def get_section_by_path(self, path: str) -> int:
+        plex_path = pathlib.Path(map_path(path, self.mappings)) if self.mappings else pathlib.Path(path)
+        sections = self.sections()
+        for directory in sections['MediaContainer']['Directory']:
+            for location in directory['Location']:
+                if plex_path.is_relative_to(location['path']) or \
+                   pathlib.Path(location['path']).is_relative_to(plex_path):
+                    return int(directory['key'])
+
+    def scan(self, path: str, force: bool = False) -> None:
+        section = self.get_section_by_path(path)
+        self.refresh(section, path, force)

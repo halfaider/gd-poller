@@ -9,7 +9,7 @@ import yaml
 
 from gd_api import GoogleDrive
 from pollers import ActivityPoller
-from dispatchers import DummyDispatcher, DiscordDispatcher, PlexmateDispatcher, GDSToolDispatcher, RcloneDispatcher, KavitaDispatcher
+from dispatchers import DummyDispatcher, DiscordDispatcher, PlexmateDispatcher, GDSToolDispatcher, RcloneDispatcher, KavitaDispatcher, PlexDispatcher
 from helpers import RedactedFormatter
 
 
@@ -52,6 +52,7 @@ def main(*args: tuple, **kwds: dict):
         'GDSToolDispatcher': GDSToolDispatcher,
         'KavitaDispatcher': KavitaDispatcher,
         'RcloneDispatcher': RcloneDispatcher,
+        'PlexDispatcher': PlexDispatcher,
     }
     try:
         set_logger(kwds.get('logger'))
