@@ -236,7 +236,7 @@ class DiscordDispatcher(Dispatcher):
     def dispatch(self, data: dict) -> None:
         '''override'''
         embed = {
-            'color': self.COLORS.get(data['action'], 'default'),
+            'color': self.COLORS.get(data['action'], self.COLORS['default']),
             'author': {
                 'name': data['poller'],
             },
