@@ -122,6 +122,13 @@ class GoogleDrivePoller:
     def stop(self) -> None:
         self.event.set()
 
+    def check_patterns(self, path: str, patterns: list) -> bool:
+        test = pathlib.Path(path)
+        for pattern in patterns:
+            if test.match(pattern):
+                return True
+        return False
+
     def poll(self, target: Any) -> None:
         raise Exception('이 메소드를 구현하세요.')
 
@@ -135,20 +142,12 @@ class ChangePoller(GoogleDrivePoller):
 
 class ActivityPoller(GoogleDrivePoller):
 
-    def check_patterns(self, path: str, patterns: list) -> bool:
-        test = pathlib.Path(path)
-        for pattern in patterns:
-            if test.match(pattern):
-                return True
-        return False
-
     def dispatch(self) -> None:
         logger.info(f'Dispatching task starts: {self.name}')
         while not self.event.is_set():
             while not self.dispatch_queue.empty():
                 try:
                     data = self.dispatch_queue.get()
-                    self.dispatch_queue.task_done()
                     if data['action'] not in self.actions:
                         logger.debug(f'Not included in actions: {data["action"]}')
                         continue
@@ -185,6 +184,8 @@ class ActivityPoller(GoogleDrivePoller):
                         dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                finally:
+                    self.dispatch_queue.task_done()
                 # 큐에서 각 아이템을 꺼낸 후 sleep
                 for _ in range(self.dispatch_interval):
                     time.sleep(1)
@@ -220,9 +221,9 @@ class ActivityPoller(GoogleDrivePoller):
                         break
                     for activity in activities:
                         data = {}
-                        logger.debug(f'{activity["primaryActionDetail"]=}')
-                        logger.debug(f'{activity["actions"]=}')
-                        logger.debug(f'{activity["targets"]=}')
+                        #logger.debug(f'{activity["primaryActionDetail"]=}')
+                        #logger.debug(f'{activity["actions"]=}')
+                        #logger.debug(f'{activity["targets"]=}')
                         timestamp = self.getTimeInfo(activity)
                         timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'
                         timestamp_utc = datetime.datetime.strptime(timestamp, timestmap_format)

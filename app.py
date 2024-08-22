@@ -23,15 +23,23 @@ REDACTED_PATTERNS = (
     "webhooks/(.+)/(.+):\\s{",
 )
 
-def set_logger() -> None:
+
+def set_logger(ff_logger: logging.Logger = None) -> None:
     global logger
-    logger.setLevel(logging.DEBUG)
-    if not logger.handlers:
+    if ff_logger:
+        level = ff_logger.level
+        handlers = ff_logger.handlers
+    else:
+        level = logging.DEBUG
         stream_handler = logging.StreamHandler()
-        redacted_patterns = REDACTED_PATTERNS
-        fomatter = RedactedFormatter(patterns=redacted_patterns, substitute='<REDACTED>', fmt='%(asctime)s %(levelname).3s %(message)s <%(module)s:%(lineno)d>')
+        fomatter = RedactedFormatter(patterns=REDACTED_PATTERNS, substitute='<REDACTED>', fmt='%(asctime)s %(levelname).3s %(message)s <%(module)s:%(lineno)d>')
         stream_handler.setFormatter(fomatter)
-        logger.addHandler(stream_handler)
+        handlers = [
+            stream_handler
+        ]
+    logger.setLevel(level)
+    for handler in handlers:
+        logger.addHandler(handler)
 
 
 def main(*args: tuple, **kwds: dict):
@@ -48,10 +56,7 @@ def main(*args: tuple, **kwds: dict):
     try:
         # ('LOAD', '/path/to/gd_poller/app.py')
         # (['app.py', '/path/to/...'],)
-        if args[0] == 'LOAD':
-            # Flasfkarm의 로거를 사용
-            logger = kwds.get('logger')
-        set_logger()
+        set_logger(kwds.get('logger'))
         if args[0] != 'LOAD' and len(args[0]) > 1:
             CONFIG_FILE = pathlib.Path(args[0][1])
         else:
