@@ -161,23 +161,28 @@ class ActivityPoller(GoogleDrivePoller):
                     if self.ignore_folder and data['is_folder']:
                         logger.debug(f'Ignore this "folder": {data["target"]}')
                         continue
-                    traget_id = data['target'][1].partition('/')[-1]
-                    data['path'] = self.drive.get_full_path(traget_id, data.get('ancestor'))
+                    if data['action'] == 'delete' and data['action_detail'] != 'TRASH':
+                        logger.debug(f'Not available: {data["target"]}')
+                        continue
+                    target_id = data['target'][1].partition('/')[-1]
+                    data['path'], parent = self.drive.get_full_path(target_id, data.get('ancestor'))
+                    if data['is_folder']:
+                        url_folder_id = target_id
+                    else:
+                        url_folder_id = parent[1]
+                    data['url'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
                     if not self.check_patterns(data['path'], self.patterns):
                         logger.debug(f'Not match with patterns: {data["path"]}')
                         continue
                     if self.check_patterns(data['path'], self.ignore_patterns):
                         logger.debug(f'Match with ignore patterns: {data["path"]}')
                         continue
-                    if data.get('move_from'):
-                        logger.debug(f'Moved from: {data["move_from"]}')
-                        if data['move_from'][1]:
-                            src_id = data['move_from'][1].partition('/')[-1]
-                            # 다른 ancestor에서 옮겨진 거라면 정확한 경로를 알 수 없음
-                            data['src_path'] = self.drive.get_full_path(src_id, data.get('ancestor'))
-                        else:
-                            # action 데이터에 removedParents가 없으면 출처를 알 수 없음
-                            data['src_path'] = data['move_from'][0]
+                    if data['action'] == 'move' and data['action_detail']:
+                        logger.debug(f'Moved from: {data["action_detail"]}')
+                        data['action_detail'] = f"from {data['action_detail'][1]}"
+                        #src_id = data['action_detail'][1].partition('/')[-1]
+                        #src_path, parent_ = self.drive.get_full_path(src_id, data.get('ancestor'))
+                        #data['action_detail'] = f'Moved from {src_path}'
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
                     for dispatcher in self.dispatchers:
@@ -229,14 +234,13 @@ class ActivityPoller(GoogleDrivePoller):
                         timestamp_utc = datetime.datetime.strptime(timestamp, timestmap_format)
                         if timestamp_utc > last_activity_timestamp:
                             last_activity_timestamp = timestamp_utc
-                        action = self.getActionInfo(activity['primaryActionDetail'])
-                        if action == 'move':
-                            data['move_from'] = self.get_move_from(activity['primaryActionDetail'])
+                        action, action_detail = self.getActionInfo(activity['primaryActionDetail'])
                         #targets = [self.getTargetInfo(target) for target in activity['targets']]
                         target = next(map(self.getTargetInfo, activity['targets']))
                         logger.debug(f'{action}, {target}')
                         data['timestamp'] = timestamp_utc
                         data['action'] = action
+                        data['action_detail'] = action_detail
                         data['target'] = target
                         data['ancestor'] = ancestor
                         self.dispatch_queue.put_nowait(data)
@@ -268,9 +272,29 @@ class ActivityPoller(GoogleDrivePoller):
             return activity['timeRange']['endTime']
         return 'unknown'
 
-    def getActionInfo(self, actionDetail: dict) -> str:
+    def getActionInfo(self, actionDetail: dict) -> tuple:
         # Returns the type of action.
-        return self.getOneOf(actionDetail)
+        for key in actionDetail:
+            match key:
+                case 'create':
+                    action_detail = self.getOneOf(actionDetail[key])
+                case 'move' if actionDetail[key].get('removedParents'):
+                    action_detail: tuple = self.getTargetInfo(actionDetail[key]["removedParents"][0])
+                case 'rename' if actionDetail[key].get('oldTitle'):
+                    action_detail = actionDetail[key]['oldTitle']
+                case 'delete' | 'restore' | 'dlpChange' | 'reference':
+                    action_detail = actionDetail[key]['type']
+                case 'permissionChange':
+                    action_detail = actionDetail[key]['addedPermissions']
+                case 'comment':
+                    actionDetail[key].pop('mentionedUsers')
+                    action_detail = actionDetail[key][self.getOneOf(actionDetail[key])]['subtype']
+                case 'settingsChange':
+                    action_detail = actionDetail[key]['restrictionChanges'][0]['newRestriction']
+                case _:
+                    action_detail = None
+            return key, action_detail
+        return 'unknown', None
 
     def getTargetInfo(self, target: dict) -> tuple:
         # Returns the type of a target and an associated title.

@@ -51,7 +51,7 @@ class GoogleDrive:
         new_http = AuthorizedHttp(self.credentials, http=Http())
         return HttpRequest(new_http, *args, **kwargs)
 
-    def get_full_path(self, item_id: str, ancestor: str = '') -> str:
+    def get_full_path(self, item_id: str, ancestor: str = '') -> tuple:
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
         ancestor_id, _, root = ancestor.partition('/')
@@ -70,7 +70,7 @@ class GoogleDrive:
                     current_path.append((file['name'], file['id']))
         current_path.append(('', drive_id))
         full_path = '/'.join([p[0] for p in current_path[::-1]])
-        return pathlib.Path(full_path).as_posix()
+        return pathlib.Path(full_path).as_posix(), current_path[1]
 
     def get_file(self, item_id: str, fields: str = '*') -> dict:
         result = self.api_drive.files().get(

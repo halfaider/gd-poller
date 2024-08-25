@@ -237,10 +237,12 @@ class DiscordDispatcher(Dispatcher):
             'fields': []
         }
         embed['fields'].append({'name': 'Path', 'value': data['path']})
-        if data['action'] == 'move':
-            embed['fields'].append({'name': 'Moved from', 'value': data['src_path']})
+        if data.get('action_detail'):
+            #embed['fields'].append({'name': 'Action detail', 'value': data['action_detail']})
+            embed['description'] += f'\n{data["action_detail"]}'
         embed['fields'].append({'name': 'ID', 'value': data['target'][1]})
         embed['fields'].append({'name': 'MIME', 'value': data['target'][2]})
+        embed['fields'].append({'name': 'Link', 'value': data['url']})
         embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
         response = self.webhook(embeds=[embed])
         if not str(response.status_code)[0] == '2':
