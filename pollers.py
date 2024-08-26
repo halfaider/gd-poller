@@ -199,7 +199,7 @@ class ActivityPoller(GoogleDrivePoller):
         logger.info(f'Dispatching task ends: {self.name}')
 
     def poll(self, ancestor: str) -> None:
-        ancestor_id, _, _ = ancestor.partition('/')
+        ancestor_id, _, _ = ancestor.partition('#')
         next_page_token = None
         # 구글 응답에 맞춰서 UTC
         last_activity_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)

@@ -54,9 +54,8 @@ class GoogleDrive:
     def get_full_path(self, item_id: str, ancestor: str = '') -> tuple:
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
-        ancestor_id, _, root = ancestor.partition('/')
+        ancestor_id, _, root = ancestor.partition('#')
         file = self.get_file(item_id)
-        drive_id = file.get('driveId')
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
         else:
@@ -68,9 +67,8 @@ class GoogleDrive:
                     break
                 else:
                     current_path.append((file['name'], file['id']))
-        current_path.append(('', drive_id))
-        full_path = '/'.join([p[0] for p in current_path[::-1]])
-        return pathlib.Path(full_path).as_posix(), current_path[1]
+        full_path = pathlib.Path(*[p[0] for p in current_path[::-1]])
+        return full_path.as_posix(), current_path[1]
 
     def get_file(self, item_id: str, fields: str = '*') -> dict:
         result = self.api_drive.files().get(
