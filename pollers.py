@@ -217,6 +217,7 @@ class ActivityPoller(GoogleDrivePoller):
                         results = query.execute()
                     except Exception as e:
                         logger.error(traceback.format_exc())
+                        logger.error(f'{ancestor=}')
                         break
                     if results.get('nextPageToken'):
                         next_page_token = results.get('nextPageToken')
@@ -248,6 +249,7 @@ class ActivityPoller(GoogleDrivePoller):
                         break
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    logger.error(f'{ancestor=}')
                     break
             for _ in range(self.polling_interval):
                 time.sleep(1)

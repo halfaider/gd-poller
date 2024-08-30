@@ -67,6 +67,8 @@ class GoogleDrive:
                     break
                 else:
                     current_path.append((file['name'], file['id']))
+        if current_path[-1][0] == 'Drive' and len(current_path[-1][1]) < 20:
+            current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
         full_path = pathlib.Path(*[p[0] for p in current_path[::-1]])
         return full_path.as_posix(), current_path[1]
 

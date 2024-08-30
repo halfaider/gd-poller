@@ -3,7 +3,7 @@ import functools
 import urllib.parse
 import traceback
 import pathlib
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import requests
 
