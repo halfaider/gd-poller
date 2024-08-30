@@ -31,7 +31,7 @@ try:
     __import__('httplib2')
 except:
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'httplib2'])
- 
+
 
 import yaml
 
@@ -84,10 +84,13 @@ def main(*args: tuple, **kwds: dict):
     }
     try:
         set_logger(kwds.get('logger'))
-        # ('LOAD', '/path/to/gd_poller/app.py')
-        # (['app.py', '/path/to/...'],)
+        logger.debug(args)
+        # ('LOAD', '/path/to/gd_poller/app.py', '/data-dev/src/gd-poller/config.test.yaml')
+        # (['app.py', '/data-dev/src/gd-poller/config.test.yaml'],)
         if args[0] != 'LOAD' and len(args[0]) > 1:
             CONFIG_FILE = pathlib.Path(args[0][1])
+        elif args[0] == 'LOAD' and len(args[0]) > 2:
+            CONFIG_FILE = pathlib.Path(args[2])
         else:
             CONFIG_FILE = pathlib.Path(__file__).with_name('config.yaml')
 
