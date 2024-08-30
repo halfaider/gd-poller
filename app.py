@@ -84,12 +84,11 @@ def main(*args: tuple, **kwds: dict):
     }
     try:
         set_logger(kwds.get('logger'))
-        logger.debug(args)
         # ('LOAD', '/path/to/gd_poller/app.py', '/data-dev/src/gd-poller/config.test.yaml')
         # (['app.py', '/data-dev/src/gd-poller/config.test.yaml'],)
         if args[0] != 'LOAD' and len(args[0]) > 1:
             CONFIG_FILE = pathlib.Path(args[0][1])
-        elif args[0] == 'LOAD' and len(args[0]) > 2:
+        elif args[0] == 'LOAD' and len(args) > 2:
             CONFIG_FILE = pathlib.Path(args[2])
         else:
             CONFIG_FILE = pathlib.Path(__file__).with_name('config.yaml')
