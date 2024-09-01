@@ -26,7 +26,7 @@ class GoogleDrivePoller:
         self._polling_interval = polling_interval
         self._page_size = page_size
         self._event = Event()
-        self._dispatch_queue = queue.Queue()
+        self._dispatch_queue = queue.PriorityQueue()
         self._tasks = []
         self._dispatchers = dispatchers
         self._ignore_folder = bool(ignore_folder)
@@ -147,7 +147,7 @@ class ActivityPoller(GoogleDrivePoller):
         while not self.event.is_set():
             while not self.dispatch_queue.empty():
                 try:
-                    data = self.dispatch_queue.get()
+                    data = self.dispatch_queue.get()[1]
                     if data['action'] not in self.actions:
                         logger.debug(f'Not included in actions: {data["action"]}')
                         continue
@@ -244,7 +244,7 @@ class ActivityPoller(GoogleDrivePoller):
                         data['action_detail'] = action_detail
                         data['target'] = target
                         data['ancestor'] = ancestor
-                        self.dispatch_queue.put_nowait(data)
+                        self.dispatch_queue.put((timestamp_utc.timestamp(), data))
                     if not next_page_token:
                         break
                 except Exception as e:
