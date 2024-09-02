@@ -85,6 +85,7 @@ class KavitaDispatcher(Dispatcher):
         kavita_path = map_path(data['path'], self.mappings) if self.mappings else data['path']
         if not data.get('is_folder'):
             kavita_path = pathlib.Path(kavita_path).parent.as_posix()
+        logger.debug(f'Kavita scan folder: {kavita_path}')
         response = await self.library_scan_folder(kavita_path)
         if response.status_code != 200:
             logger.debug(response.text)
