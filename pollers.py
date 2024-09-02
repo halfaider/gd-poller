@@ -246,7 +246,11 @@ class ActivityPoller(GoogleDrivePoller):
                         data['action_detail'] = action_detail
                         data['target'] = target
                         data['ancestor'] = ancestor
-                        self.dispatch_queue.put((timestamp_utc.timestamp(), data))
+                        try:
+                            self.dispatch_queue.put((timestamp_utc.timestamp(), data))
+                        except:
+                            logger.error(traceback.format_exc())
+                            logger.error(f'timestamp: {timestamp_utc}, data: {data}')
                     if not next_page_token:
                         break
                 except Exception as e:
