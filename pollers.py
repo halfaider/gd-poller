@@ -5,6 +5,7 @@ import traceback
 import datetime
 import asyncio
 from typing import Any
+from dataclasses import dataclass, field
 
 from gd_api import GoogleDrive
 from dispatchers import Dispatcher
@@ -12,6 +13,12 @@ from helpers import await_sync
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
 logger = logging.getLogger(__name__)
+
+
+@dataclass(order=True)
+class PrioritizedItem:
+    priority: float
+    item: Any=field(compare=False)
 
 
 class GoogleDrivePoller:
@@ -148,7 +155,7 @@ class ActivityPoller(GoogleDrivePoller):
             while not self.dispatch_queue.empty():
                 data = None
                 try:
-                    data = self.dispatch_queue.get()[1]
+                    data = self.dispatch_queue.get().item
                     if data['action'] not in self.actions:
                         logger.debug(f'Not included in actions: {data["action"]}')
                         continue
@@ -246,11 +253,7 @@ class ActivityPoller(GoogleDrivePoller):
                         data['action_detail'] = action_detail
                         data['target'] = target
                         data['ancestor'] = ancestor
-                        try:
-                            self.dispatch_queue.put((timestamp_utc.timestamp(), data))
-                        except:
-                            logger.error(traceback.format_exc())
-                            logger.error(f'timestamp: {timestamp_utc}, data: {data}')
+                        self.dispatch_queue.put(PrioritizedItem(timestamp_utc.timestamp(), data))
                     if not next_page_token:
                         break
                 except Exception as e:
