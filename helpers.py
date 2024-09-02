@@ -1,10 +1,11 @@
 import traceback
 import logging
 import re
+import asyncio
+import functools
 from typing import Any, Optional, Union, Iterable
 
 import requests
-
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +36,12 @@ class RedactedFormatter(logging.Formatter):
         return pattern.sub(self.substitute, text)
 
 
-def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
+async def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
     try:
         if method.upper() == 'JSON':
-            return requests.request('POST', url, json=data or {}, timeout=timeout, **kwds)
+            return await await_sync(requests.request, 'POST', url, json=data or {}, timeout=timeout, **kwds)
         else:
-            return requests.request(method, url, data=data, timeout=timeout, **kwds)
+            return await await_sync(requests.request, method, url, data=data, timeout=timeout, **kwds)
     except:
         tb = traceback.format_exc()
         logger.error(tb)
@@ -70,3 +71,13 @@ def map_path(target: str, mappings: Iterable[Iterable[str]]) -> str:
     for mapping in mappings:
         target = target.replace(mapping[0], mapping[1])
     return target
+
+
+async def stop_event_loop() -> None:
+    loop = asyncio.get_event_loop()
+    loop.stop()
+    loop.close()
+
+
+async def await_sync(func: callable, *args, **kwds) -> Any:
+    return await asyncio.get_running_loop().run_in_executor(None, functools.partial(func, *args, **kwds))

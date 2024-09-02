@@ -2,14 +2,13 @@ import queue
 import pathlib
 import logging
 import traceback
-import time
 import datetime
-from threading import Thread, Event
+import asyncio
 from typing import Any
 
 from gd_api import GoogleDrive
 from dispatchers import Dispatcher
-
+from helpers import await_sync
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
 logger = logging.getLogger(__name__)
@@ -25,7 +24,7 @@ class GoogleDrivePoller:
         self._name = name
         self._polling_interval = polling_interval
         self._page_size = page_size
-        self._event = Event()
+        self._stop_event = asyncio.Event()
         self._dispatch_queue = queue.PriorityQueue()
         self._tasks = []
         self._dispatchers = dispatchers
@@ -73,11 +72,11 @@ class GoogleDrivePoller:
         return self._page_size
 
     @property
-    def event(self) -> Event:
-        return self._event
+    def stop_event(self) -> asyncio.Event:
+        return self._stop_event
 
     @property
-    def dispatch_queue(self) -> queue.Queue:
+    def dispatch_queue(self) -> queue.PriorityQueue:
         return self._dispatch_queue
 
     @property
@@ -97,30 +96,31 @@ class GoogleDrivePoller:
         return self._ignore_patterns
 
     @property
-    def tasks(self) -> list[Thread]:
+    def tasks(self) -> list:
         return self._tasks
 
     @property
     def dispatch_interval(self) -> int:
         return self._dispatch_interval
 
-    def start(self) -> None:
-        if self.event.is_set():
-            self.event.clear()
-        dispatching_task = Thread(target=self.dispatch)
-        dispatching_task.start()
-        self.tasks.append(dispatching_task)
+    async def start(self) -> None:
+        if self.stop_event.is_set():
+            self.stop_event.clear()
+        self.tasks.append(asyncio.create_task(self.dispatch(), name=self.name))
         for target in self.targets:
-            polling_task = Thread(target=self.poll, args=(target,))
-            polling_task.start()
-            self.tasks.append(polling_task)
+            self.tasks.append(asyncio.create_task(self.poll(target), name=target))
+        try:
+            await asyncio.gather(*self.tasks)
+        except asyncio.CancelledError:
+            logger.warning(f'Tasks are cancelled: {self.name}')
 
-    def join(self) -> None:
+    async def stop(self) -> None:
+        self.stop_event.set()
         for task in self.tasks:
-            task.join()
-
-    def stop(self) -> None:
-        self.event.set()
+            logger.debug(task)
+            if not task.done():
+                task.print_stack()
+                task.cancel()
 
     def check_patterns(self, path: str, patterns: list) -> bool:
         test = pathlib.Path(path)
@@ -129,10 +129,10 @@ class GoogleDrivePoller:
                 return True
         return False
 
-    def poll(self, target: Any) -> None:
+    async def poll(self, target: Any) -> None:
         raise Exception('이 메소드를 구현하세요.')
 
-    def dispatch(self) -> None:
+    async def dispatch(self) -> None:
         raise Exception('이 메소드를 구현하세요.')
 
 
@@ -142,9 +142,9 @@ class ChangePoller(GoogleDrivePoller):
 
 class ActivityPoller(GoogleDrivePoller):
 
-    def dispatch(self) -> None:
+    async def dispatch(self) -> None:
         logger.info(f'Dispatching task starts: {self.name}')
-        while not self.event.is_set():
+        while not self.stop_event.is_set():
             while not self.dispatch_queue.empty():
                 try:
                     data = self.dispatch_queue.get()[1]
@@ -186,26 +186,26 @@ class ActivityPoller(GoogleDrivePoller):
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
                     for dispatcher in self.dispatchers:
-                        dispatcher.dispatch(data)
+                        await dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())
                 finally:
                     self.dispatch_queue.task_done()
                 # 큐에서 각 아이템을 꺼낸 후 sleep
                 for _ in range(self.dispatch_interval):
-                    time.sleep(1)
+                    await asyncio.sleep(1)
             # 큐에서 아이템을 모두 꺼낸 후 sleep
-            time.sleep(1)
+            await asyncio.sleep(1)
         logger.info(f'Dispatching task ends: {self.name}')
 
-    def poll(self, ancestor: str) -> None:
+    async def poll(self, ancestor: str) -> None:
         ancestor_id, _, _ = ancestor.partition('#')
         next_page_token = None
         # 구글 응답에 맞춰서 UTC
         last_activity_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)
         logger.info(f'Polling task starts: {ancestor}')
-        while not self.event.is_set():
-            while not self.event.is_set():
+        while not self.stop_event.is_set():
+            while not self.stop_event.is_set():
                 try:
                     query = self.drive.api_activity.activity().query(body={
                         'pageSize': self.page_size,
@@ -214,7 +214,8 @@ class ActivityPoller(GoogleDrivePoller):
                         'filter': f'time > "{last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
                     })
                     try:
-                        results = query.execute()
+                        #results = query.execute()
+                        results = await await_sync(query.execute)
                     except Exception as e:
                         logger.error(traceback.format_exc())
                         logger.error(f'{ancestor=}')
@@ -236,7 +237,6 @@ class ActivityPoller(GoogleDrivePoller):
                         if timestamp_utc > last_activity_timestamp:
                             last_activity_timestamp = timestamp_utc
                         action, action_detail = self.getActionInfo(activity['primaryActionDetail'])
-                        #targets = [self.getTargetInfo(target) for target in activity['targets']]
                         target = next(map(self.getTargetInfo, activity['targets']))
                         logger.debug(f'{action}, {target}')
                         data['timestamp'] = timestamp_utc
@@ -252,8 +252,8 @@ class ActivityPoller(GoogleDrivePoller):
                     logger.error(f'{ancestor=}')
                     break
             for _ in range(self.polling_interval):
-                time.sleep(1)
-                if self.event.is_set(): break
+                await asyncio.sleep(1)
+                if self.stop_event.is_set(): break
         logger.info(f'Polling task ends: {ancestor}')
 
     def get_move_from(self, action_detail: dict) -> str:

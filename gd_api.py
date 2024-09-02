@@ -7,7 +7,6 @@ from google.oauth2 import credentials
 from googleapiclient.discovery import build, Resource
 from googleapiclient.http import HttpRequest
 
-
 logger = logging.getLogger(__name__)
 
 
