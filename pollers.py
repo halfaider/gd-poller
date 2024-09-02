@@ -146,6 +146,7 @@ class ActivityPoller(GoogleDrivePoller):
         logger.info(f'Dispatching task starts: {self.name}')
         while not self.stop_event.is_set():
             while not self.dispatch_queue.empty():
+                data = None
                 try:
                     data = self.dispatch_queue.get()[1]
                     if data['action'] not in self.actions:
@@ -190,7 +191,8 @@ class ActivityPoller(GoogleDrivePoller):
                 except Exception as e:
                     logger.error(traceback.format_exc())
                 finally:
-                    self.dispatch_queue.task_done()
+                    if data:
+                        self.dispatch_queue.task_done()
                 # 큐에서 각 아이템을 꺼낸 후 sleep
                 for _ in range(self.dispatch_interval):
                     await asyncio.sleep(1)
@@ -244,6 +246,7 @@ class ActivityPoller(GoogleDrivePoller):
                         data['action_detail'] = action_detail
                         data['target'] = target
                         data['ancestor'] = ancestor
+                        logger.debug(timestamp_utc.timestamp())
                         self.dispatch_queue.put((timestamp_utc.timestamp(), data))
                     if not next_page_token:
                         break
