@@ -72,7 +72,6 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
     pollers = []
     tasks = []
     try:
-        print(args)
         set_logger(kwds.get('logger'))
         # ('LOAD', '/path/to/gd_poller/app.py', '/data-dev/src/gd-poller/config.test.yaml')
         # ('app.py', '/data-dev/src/gd-poller/config.test.yaml')

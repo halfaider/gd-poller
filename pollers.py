@@ -246,7 +246,6 @@ class ActivityPoller(GoogleDrivePoller):
                         data['action_detail'] = action_detail
                         data['target'] = target
                         data['ancestor'] = ancestor
-                        logger.debug(timestamp_utc.timestamp())
                         self.dispatch_queue.put((timestamp_utc.timestamp(), data))
                     if not next_page_token:
                         break
