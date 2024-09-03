@@ -4,11 +4,11 @@ import logging
 import traceback
 import datetime
 import asyncio
-from typing import Any
+from typing import Any, Iterable
 from dataclasses import dataclass, field
 
+import dispatchers
 from gd_api import GoogleDrive
-from dispatchers import Dispatcher
 from helpers import await_sync
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
@@ -23,21 +23,84 @@ class PrioritizedItem:
 
 class GoogleDrivePoller:
 
-    def __init__(self, drive: GoogleDrive, dispatchers: list[Dispatcher] = None, targets: list = None, name: str = None,
-                 polling_interval: int = 60, page_size: int = 100, actions: tuple = None,
+    def __init__(self, drive: GoogleDrive, targets: list[str], dispatcher_list: list[dispatchers.Dispatcher] = None, name: str = None,
+                 polling_interval: int = 60, page_size: int = 50, actions: Iterable = None,
                  patterns: list = None, ignore_patterns: list = None, ignore_folder: bool = True, dispatch_interval: int = 1):
-        self._drive = drive
-        self._targets = targets
-        self._name = name
-        self._polling_interval = polling_interval
-        self._page_size = page_size
+        self.drive = drive
+        self.targets = targets
+        self.dispatcher_list = dispatcher_list
+        self.name = name
+        self.polling_interval = polling_interval
+        self.page_size = page_size
+        self.actions = actions
+        self.patterns = patterns
+        self.ignore_patterns = ignore_patterns
+        self.ignore_folder = ignore_folder
+        self.dispatch_interval = dispatch_interval
+
         self._stop_event = asyncio.Event()
-        self._dispatch_queue = queue.PriorityQueue()
-        self._tasks = []
-        self._dispatchers = dispatchers
-        self._ignore_folder = bool(ignore_folder)
-        self._patterns = patterns if patterns else ['*']
-        self._ignore_patterns = ignore_patterns if ignore_patterns else []
+        self._dispatch_queue = None
+        self._tasks = None
+
+    @property
+    def drive(self) -> GoogleDrive:
+        return self._drive
+
+    @drive.setter
+    def drive(self, drive: GoogleDrive) -> None:
+        self._drive = drive
+
+    @property
+    def targets(self) -> list:
+        return self._targets
+
+    @targets.setter
+    def targets(self, targets: list) -> None:
+        try:
+            if len(targets) < 1:
+                raise Exception(f'The targets is empty: {targets=}')
+            self._targets = targets
+        except:
+            raise Exception(f'The targets is not a list: {targets=}')
+
+    @property
+    def dispatcher_list(self) -> list[dispatchers.Dispatcher]:
+        return self._dispatcher_list
+
+    @dispatcher_list.setter
+    def dispatcher_list(self, dispatcher_list: list[dispatchers.Dispatcher]) -> None:
+        self._dispatcher_list = dispatcher_list if dispatcher_list else [dispatchers.DummyDispatcher()]
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @name.setter
+    def name(self, name: str) -> None:
+        self._name = name if name else self.__class__.__name__
+
+    @property
+    def polling_interval(self) -> int:
+        return self._polling_interval
+
+    @polling_interval.setter
+    def polling_interval(self, polling_interval: int) -> None:
+        self._polling_interval = int(polling_interval) if polling_interval else 60
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    @page_size.setter
+    def page_size(self, page_size: int) -> None:
+        self._page_size = int(page_size) if page_size else 50
+
+    @property
+    def actions(self) -> tuple:
+        return self._actions
+
+    @actions.setter
+    def actions(self, actions: Iterable) -> None:
         self._actions = tuple(actions) if actions else (
             'create',
             'edit',
@@ -52,31 +115,38 @@ class GoogleDrivePoller:
             'settingsChange',
             'appliedLabelChange'
         )
-        self._dispatch_interval = dispatch_interval
 
     @property
-    def drive(self) -> GoogleDrive:
-        return self._drive
+    def patterns(self) -> list:
+        return self._patterns
+
+    @patterns.setter
+    def patterns(self, patterns: list) -> None:
+        self._patterns = list(patterns) if patterns else ['*']
 
     @property
-    def dispatchers(self) -> list[Dispatcher]:
-        return self._dispatchers
+    def ignore_patterns(self) -> list:
+        return self._ignore_patterns
+
+    @ignore_patterns.setter
+    def ignore_patterns(self, ignore_patterns: list) -> None:
+        self._ignore_patterns = list(ignore_patterns) if ignore_patterns else []
 
     @property
-    def targets(self) -> list:
-        return self._targets
+    def dispatch_interval(self) -> int:
+        return self._dispatch_interval
+
+    @dispatch_interval.setter
+    def dispatch_interval(self, dispatch_interval: int) -> None:
+        self._dispatch_interval = int(dispatch_interval) if dispatch_interval else 1
 
     @property
-    def name(self) -> str:
-        return self._name
+    def ignore_folder(self) -> bool:
+        return self._ignore_folder
 
-    @property
-    def polling_interval(self) -> int:
-        return self._polling_interval
-
-    @property
-    def page_size(self) -> int:
-        return self._page_size
+    @ignore_folder.setter
+    def ignore_folder(self, ignore_folder: bool) -> bool:
+        self._ignore_folder = ignore_folder if type(ignore_folder) is bool else True
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -87,30 +157,12 @@ class GoogleDrivePoller:
         return self._dispatch_queue
 
     @property
-    def actions(self) -> tuple:
-        return self._actions
-
-    @property
-    def ignore_folder(self) -> bool:
-        return self._ignore_folder
-
-    @property
-    def patterns(self) -> list:
-        return self._patterns
-
-    @property
-    def ignore_patterns(self) -> list:
-        return self._ignore_patterns
-
-    @property
     def tasks(self) -> list:
         return self._tasks
 
-    @property
-    def dispatch_interval(self) -> int:
-        return self._dispatch_interval
-
     async def start(self) -> None:
+        self._dispatch_queue = queue.PriorityQueue()
+        self._tasks = []
         if self.stop_event.is_set():
             self.stop_event.clear()
         self.tasks.append(asyncio.create_task(self.dispatch(), name=self.name))
@@ -128,6 +180,8 @@ class GoogleDrivePoller:
             if not task.done():
                 task.print_stack()
                 task.cancel()
+        self._dispatch_queue = None
+        self._tasks = None
 
     def check_patterns(self, path: str, patterns: list) -> bool:
         test = pathlib.Path(path)
@@ -193,7 +247,7 @@ class ActivityPoller(GoogleDrivePoller):
                         #data['action_detail'] = f'Moved from {src_path}'
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
-                    for dispatcher in self.dispatchers:
+                    for dispatcher in self.dispatcher_list:
                         await dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())

@@ -86,21 +86,21 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         drive = GoogleDrive(config['google_drive']['token'], config['google_drive']['scopes'], {})
         for poller in config['pollers']:
             dispatcher_list = []
-            for dispatcher in poller.get('dispatchers', {'class': 'DummyDispatcher'}):
+            for dispatcher in poller.get('dispatchers', [{'class': 'DummyDispatcher'}]):
                 class_ = getattr(dispatchers, dispatcher.pop('class'))
                 dispatcher_list.append(class_(**dispatcher))
             activity_poller = ActivityPoller(
                 drive,
-                dispatcher_list,
                 poller['targets'],
+                dispatcher_list,
                 name=poller['name'],
-                polling_interval=poller.get('polling_interval', 60),
-                page_size=poller.get('page_size', 100),
+                polling_interval=poller.get('polling_interval'),
+                page_size=poller.get('page_size'),
                 actions=poller.get('actions'),
                 patterns=poller.get('patterns'),
                 ignore_patterns=poller.get('ignore_patterns'),
-                ignore_folder=poller.get('ignore_folder', True),
-                dispatch_interval=poller.get('dispatch_interval', 1))
+                ignore_folder=poller.get('ignore_folder'),
+                dispatch_interval=poller.get('dispatch_interval'))
             pollers.append(activity_poller)
         for poller in pollers:
             tasks.append(asyncio.create_task(poller.start(), name=poller.name))
