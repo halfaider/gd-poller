@@ -72,7 +72,6 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
     pollers = []
     tasks = []
     try:
-        set_logger(kwds.get('logger'))
         # ('LOAD', '/path/to/gd_poller/app.py', '/data-dev/src/gd-poller/config.test.yaml')
         # ('app.py', '/data-dev/src/gd-poller/config.test.yaml')
         if args[0] == 'LOAD' and len(args) > 2:
@@ -83,6 +82,9 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
             CONFIG_FILE = pathlib.Path(__file__).with_name('config.yaml')
         with CONFIG_FILE.open(mode='r', encoding='utf-8') as file:
             config = yaml.safe_load(file.read())
+
+        set_logger(kwds.get('logger'))
+
         drive = GoogleDrive(config['google_drive']['token'], config['google_drive']['scopes'], {})
         for poller in config['pollers']:
             dispatcher_list = []
@@ -125,13 +127,13 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
 
 
 def main(*args: tuple, **kwds: dict) -> None:
-    try:
-        loop = asyncio.get_running_loop()
-        if loop.is_running():
-            print(f'Stopping running event loop...')
-            asyncio.run_coroutine_threadsafe(stop_event_loop(), loop)
-    except:
-        pass
+    #try:
+    #    loop = asyncio.get_running_loop()
+    #    if loop.is_running():
+    #        print(f'Stopping running event loop...')
+    #        asyncio.run_coroutine_threadsafe(stop_event_loop(), loop)
+    #except Exception as e:
+    #    print(e)
     try:
         asyncio.run(async_main(*args, **kwds))
     except KeyboardInterrupt:
