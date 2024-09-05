@@ -5,20 +5,13 @@ import traceback
 import datetime
 import asyncio
 from typing import Any, Iterable
-from dataclasses import dataclass, field
 
 import dispatchers
 from gd_api import GoogleDrive
-from helpers import await_sync
+from helpers import await_sync, PrioritizedItem
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
 logger = logging.getLogger(__name__)
-
-
-@dataclass(order=True)
-class PrioritizedItem:
-    priority: float
-    item: Any=field(compare=False)
 
 
 class GoogleDrivePoller:
@@ -242,9 +235,6 @@ class ActivityPoller(GoogleDrivePoller):
                     if data['action'] == 'move' and data['action_detail']:
                         logger.debug(f'Moved from: {data["action_detail"]}')
                         data['action_detail'] = f"from {data['action_detail'][1]}"
-                        #src_id = data['action_detail'][1].partition('/')[-1]
-                        #src_path, parent_ = self.drive.get_full_path(src_id, data.get('ancestor'))
-                        #data['action_detail'] = f'Moved from {src_path}'
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
                     for dispatcher in self.dispatcher_list:
@@ -292,7 +282,7 @@ class ActivityPoller(GoogleDrivePoller):
                     for activity in activities:
                         data = {}
                         #logger.debug(f'{activity["primaryActionDetail"]=}')
-                        #logger.debug(f'{activity["actions"]=}')
+                        logger.debug(f'{activity["actions"]=}')
                         #logger.debug(f'{activity["targets"]=}')
                         timestamp = self.getTimeInfo(activity)
                         timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'

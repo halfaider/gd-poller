@@ -3,6 +3,7 @@ import logging
 import re
 import asyncio
 import functools
+from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
 
 import requests
@@ -34,6 +35,12 @@ class RedactedFormatter(logging.Formatter):
 
     def redact(self, pattern: re.Pattern, text: str) -> str:
         return pattern.sub(self.substitute, text)
+
+
+@dataclass(order=True)
+class PrioritizedItem:
+    priority: float
+    item: Any=field(compare=False)
 
 
 async def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
