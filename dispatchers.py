@@ -140,6 +140,8 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
                 await self.fp__broadcast(data['path'], 'REMOVE_FOLDER')
             case 'delete', False:
                 await self.fp__broadcast(data['path'], 'REMOVE_FILE')
+            case 'edit', _:
+                await self.fp__broadcast(data['path'], 'REFRESH')
 
     @FlaskfarmDispatcher.api('GET')
     def fp__broadcast(self, path: str, mode: str) -> requests.Response:

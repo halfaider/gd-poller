@@ -241,6 +241,7 @@ class ActivityPoller(GoogleDrivePoller):
                         await dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    logger.error(f'{data=}')
                 finally:
                     if data:
                         self.dispatch_queue.task_done()
@@ -267,7 +268,6 @@ class ActivityPoller(GoogleDrivePoller):
                         'filter': f'time > "{last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
                     })
                     try:
-                        #results = query.execute()
                         results = await await_sync(query.execute)
                     except Exception as e:
                         logger.error(traceback.format_exc())
@@ -280,24 +280,19 @@ class ActivityPoller(GoogleDrivePoller):
                         #logger.debug(F'No activity in {ancestor} since {last_activity_timestamp}')
                         break
                     for activity in activities:
-                        data = {}
+                        data = {'ancestor': ancestor}
                         #logger.debug(f'{activity["primaryActionDetail"]=}')
-                        logger.debug(f'{activity["actions"]=}')
+                        #logger.debug(f'{activity["actions"]=}')
                         #logger.debug(f'{activity["targets"]=}')
                         timestamp = self.getTimeInfo(activity)
                         timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'
-                        timestamp_utc = datetime.datetime.strptime(timestamp, timestmap_format)
-                        if timestamp_utc > last_activity_timestamp:
-                            last_activity_timestamp = timestamp_utc
-                        action, action_detail = self.getActionInfo(activity['primaryActionDetail'])
-                        target = next(map(self.getTargetInfo, activity['targets']))
-                        logger.debug(f'{action}, {target}')
-                        data['timestamp'] = timestamp_utc
-                        data['action'] = action
-                        data['action_detail'] = action_detail
-                        data['target'] = target
-                        data['ancestor'] = ancestor
-                        self.dispatch_queue.put(PrioritizedItem(timestamp_utc.timestamp(), data))
+                        data['timestamp'] = datetime.datetime.strptime(timestamp, timestmap_format)
+                        if data['timestamp'] > last_activity_timestamp:
+                            last_activity_timestamp = data['timestamp']
+                        data['action'], data['action_detail'] = self.getActionInfo(activity['primaryActionDetail'])
+                        data['target'] = next(map(self.getTargetInfo, activity['targets']))
+                        logger.debug(f"{data['action']}, {data['target']}")
+                        self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
                     if not next_page_token:
                         break
                 except Exception as e:
