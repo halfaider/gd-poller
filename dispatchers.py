@@ -243,8 +243,7 @@ class DiscordDispatcher(Dispatcher):
         }
         embed['fields'].append({'name': 'Path', 'value': data['path']})
         if data['action'] == 'move':
-            removed_path = pathlib.Path(data["removed_path"], data['target'][0])
-            embed['fields'].append({'name': 'From', 'value': str(removed_path) if data['removed_path'] else f'unknown'})
+            embed['fields'].append({'name': 'From', 'value': str(pathlib.Path(data["removed_path"], data['target'][0])) if data['removed_path'] else f'unknown'})
         elif data.get('action_detail'):
             embed['fields'].append({'name': 'Details', 'value': data["action_detail"]})
         embed['fields'].append({'name': 'ID', 'value': data['target'][1]})
