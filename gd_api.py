@@ -69,7 +69,8 @@ class GoogleDrive:
         if len(current_path[-1][1]) < 20:
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
         full_path = pathlib.Path(*[p[0] for p in current_path[::-1]])
-        return full_path.as_posix(), current_path[1]
+        parent = current_path[1] if len(current_path) > 1 else current_path[0]
+        return full_path.as_posix(), parent
 
     def get_file(self, item_id: str, fields: str = '*') -> dict:
         result = self.api_drive.files().get(

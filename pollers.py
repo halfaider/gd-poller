@@ -203,9 +203,11 @@ class ActivityPoller(GoogleDrivePoller):
                 data = None
                 try:
                     data = self.dispatch_queue.get().item
+                    # action 필터링
                     if data['action'] not in self.actions:
-                        logger.debug(f'Not included in actions: {data["action"]}')
+                        logger.debug(f'Skip: target={data["target"]} reason={data["action"]}')
                         continue
+                    # 폴더 타입 확인
                     if data['target'][2] in [
                             'application/vnd.google-apps.folder',
                             'application/vnd.google-apps.shortcut'
@@ -213,28 +215,40 @@ class ActivityPoller(GoogleDrivePoller):
                         data['is_folder'] = True
                     else:
                         data['is_folder'] = False
+                    # 폴더 무시 판단
                     if self.ignore_folder and data['is_folder']:
-                        logger.debug(f'Ignore this "folder": {data["target"]}')
+                        logger.debug(f'Skip: target={data["target"]} reason=folder')
                         continue
+                    # 대상이 영구히 삭제돼서 조회 불가능 할 경우
                     if data['action'] == 'delete' and data['action_detail'] != 'TRASH':
-                        logger.debug(f'Not available: {data["target"]}')
+                        logger.debug(f'Skip: target={data["target"]} reason="deleted permanently"')
                         continue
+                    # 대상 경로
                     target_id = data['target'][1].partition('/')[-1]
                     data['path'], parent = self.drive.get_full_path(target_id, data.get('ancestor'))
+                    # url 링크
                     if data['is_folder']:
                         url_folder_id = target_id
                     else:
                         url_folder_id = parent[1]
                     data['url'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
+                    # 패턴 체크
                     if not self.check_patterns(data['path'], self.patterns):
-                        logger.debug(f'Not match with patterns: {data["path"]}')
+                        logger.debug(f'Skip: target={data["target"]} reason="Not match with patterns"')
                         continue
                     if self.check_patterns(data['path'], self.ignore_patterns):
-                        logger.debug(f'Match with ignore patterns: {data["path"]}')
+                        logger.debug(f'Skip: target={data["target"]} reason="Match with ignore patterns"')
                         continue
+                    # move일 경우 소스 경로
+                    data['removed_path'] = None
                     if data['action'] == 'move' and data['action_detail']:
                         logger.debug(f'Moved from: {data["action_detail"]}')
-                        data['action_detail'] = f"from {data['action_detail'][1]}"
+                        try:
+                            removed_parent_id = data['action_detail'][1].partition('/')[-1]
+                            data['removed_path'], _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                        except Exception as e:
+                            logger.error(traceback.format_exc())
+                    # 기타 정보
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
                     for dispatcher in self.dispatcher_list:
