@@ -337,11 +337,12 @@ class RcloneDispatcher(Dispatcher):
         local_path = pathlib.Path(local_path)
         remote_path = pathlib.Path(map_path(str(local_path), self.mappings)) if self.mappings else local_path
         parents: list[pathlib.Path] = list(remote_path.parents)
-        to_be_tested = str(remote_path) if is_directory else str(parents.pop(0))
+        to_be_tested = remote_path.as_posix() if is_directory else parents.pop(0).as_posix()
         not_exists_paths = []
         result = await self.vfs__refresh(to_be_tested, recursive)
-        while result['result'].get(to_be_tested) == 'file does not exist':
-            not_exists_paths.insert(0, to_be_tested)
+        while not result['result'].get(to_be_tested) == 'OK':
+            if result['result'].get(to_be_tested) == 'file does not exist':
+                not_exists_paths.insert(0, to_be_tested)
             if parents:
                 to_be_tested = parents.pop(0).as_posix()
                 result = await self.vfs__refresh(to_be_tested, recursive)
