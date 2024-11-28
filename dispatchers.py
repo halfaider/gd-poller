@@ -367,9 +367,8 @@ class PlexDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        if not data.get('is_folder'):
-            data['path'] = pathlib.Path(data['path']).parent.as_posix()
-        self.scan(data['path'])
+        scan_target = pathlib.Path(data['path']).parent.as_posix() if not data.get('is_folder') else data['path']
+        await self.scan(scan_target)
 
     def api(func: callable) -> callable:
         @functools.wraps(func)
@@ -412,6 +411,6 @@ class PlexDispatcher(Dispatcher):
                     return int(directory['key'])
 
     async def scan(self, path: str, force: bool = False) -> None:
-        section = self.get_section_by_path(path)
+        section = await self.get_section_by_path(path)
         logger.debug(f'Plex scan folder: {path}')
         await self.refresh(section, path, force)
