@@ -213,7 +213,6 @@ class DiscordDispatcher(Dispatcher):
             params = func(self, *args, ** kwds)
             api = params.pop('api')
             method = params.pop('method')
-            logger.debug(params)
             return await request(method, f'{self.API_URL}{api}', json=params, headers=self.headers)
         return wrapper
 
@@ -251,8 +250,11 @@ class DiscordDispatcher(Dispatcher):
         embed['fields'].append({'name': 'Link', 'value': data['url']})
         embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
         response = await self.webhook(embeds=[embed])
-        if not str(response.status_code)[0] == '2':
-            logger.error(f'webhook status_code: {response.status_code}')
+        log_msg = f"Discord target=\"{data['target'][0]}\" status_code={response.status_code}"
+        if str(response.status_code)[0] == '2':
+            logger.debug(log_msg)
+        else:
+            logger.error(log_msg + f' content="{response.text}"')
 
 
 class RcloneDispatcher(Dispatcher):
