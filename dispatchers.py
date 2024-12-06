@@ -81,7 +81,8 @@ class KavitaDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        await self.set_token()
+        if not self.token:
+            await self.set_token()
         kavita_path = map_path(data['path'], self.mappings) if self.mappings else data['path']
         if not data.get('is_folder'):
             kavita_path = pathlib.Path(kavita_path).parent.as_posix()
