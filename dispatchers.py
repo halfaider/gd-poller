@@ -168,6 +168,9 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
         else:
             mode = 'ADD'
         logger.info(f'Plexmate: {await self.scan__do_scan(remote_path, mode=mode)}')
+        if data.get('removed_path'):
+            mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
+            logger.info(f"Plexmate: {await self.scan__do_scan(data.get('removed_path'), mode=mode)}")
 
     @FlaskfarmDispatcher.api('POST')
     def scan__do_scan(self, dir: str, mode: str = 'ADD') -> requests.Response:
@@ -280,10 +283,9 @@ class RcloneDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        if not data['is_folder']:
-            await self.refresh(data['path'], data['is_folder'])
-        else:
-            logger.debug(f'RcloneDispatcher: It is a folder: {data["path"]}')
+        await self.refresh(data['path'], data['is_folder'])
+        if data.get('removed_path'):
+            await self.vfs__forget(data['removed_path'], data['is_folder'])
 
     def command(method: callable) -> callable:
         @functools.wraps(method)
@@ -331,6 +333,15 @@ class RcloneDispatcher(Dispatcher):
             data['opt'] = opts
         return data
 
+    @command
+    def vfs__forget(self, remote_path: str, is_directory: bool = False) -> dict:
+        data = {}
+        if is_directory:
+            data['file'] = remote_path
+        else:
+            data['dir'] = remote_path
+        return data
+
     async def is_file(self, remote_path: str) -> bool:
         result: dict = await self.operations__stat(remote_path, self.vfs)
         item = result.get('item', {})
@@ -372,6 +383,9 @@ class PlexDispatcher(Dispatcher):
         '''override'''
         scan_target = pathlib.Path(data['path']).parent.as_posix() if not data.get('is_folder') else data['path']
         await self.scan(scan_target)
+        if data.get('removed_path'):
+            scan_target = pathlib.Path(data.get('removed_path')).parent.as_posix() if not data.get('is_folder') else data.get('removed_path')
+            await self.scan(scan_target)
 
     def api(func: callable) -> callable:
         @functools.wraps(func)
