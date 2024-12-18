@@ -1,5 +1,6 @@
 import pathlib
 import logging
+import traceback
 
 from httplib2 import Http
 from google_auth_httplib2 import AuthorizedHttp
@@ -68,16 +69,20 @@ class GoogleDrive:
                     current_path.append((file['name'], file['id']))
         if len(current_path[-1][1]) < 20:
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
-        full_path = pathlib.Path(*[p[0] for p in current_path[::-1]])
+        full_path = pathlib.Path(*[p[0] for p in current_path[::-1] if p[0]])
         parent = current_path[1] if len(current_path) > 1 else current_path[0]
         return full_path.as_posix(), parent
 
     def get_file(self, item_id: str, fields: str = '*') -> dict:
-        result = self.api_drive.files().get(
-            fileId=item_id,
-            fields=fields,
-            supportsAllDrives=True,
-        ).execute()
+        try:
+            result = self.api_drive.files().get(
+                fileId=item_id,
+                fields=fields,
+                supportsAllDrives=True,
+            ).execute()
+        except:
+            logger.error(traceback.format_exc())
+            result = {'id': item_id, 'name': None}
         return result
 
     def get_files(self, query: str) -> dict:

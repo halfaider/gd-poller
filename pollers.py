@@ -226,6 +226,9 @@ class ActivityPoller(GoogleDrivePoller):
                     # 대상 경로
                     target_id = data['target'][1].partition('/')[-1]
                     data['path'], parent = self.drive.get_full_path(target_id, data.get('ancestor'))
+                    if not parent[0]:
+                        logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} parent={parent[0]}")
+                        data['path'] = f"/unknown/{data['target'][0]}"
                     # url 링크
                     if data['is_folder']:
                         url_folder_id = target_id
