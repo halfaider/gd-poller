@@ -337,9 +337,9 @@ class RcloneDispatcher(Dispatcher):
     def vfs__forget(self, remote_path: str, is_directory: bool = False) -> dict:
         data = {}
         if is_directory:
-            data['file'] = remote_path
-        else:
             data['dir'] = remote_path
+        else:
+            data['file'] = remote_path
         return data
 
     async def is_file(self, remote_path: str) -> bool:
@@ -429,5 +429,5 @@ class PlexDispatcher(Dispatcher):
 
     async def scan(self, path: str, force: bool = False) -> None:
         section = await self.get_section_by_path(path)
-        logger.debug(f'Plex scan folder: {path}')
+        logger.debug(f'Plex scan: {path=} {section=}')
         await self.refresh(section, path, force)
