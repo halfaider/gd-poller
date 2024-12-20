@@ -335,12 +335,9 @@ class RcloneDispatcher(Dispatcher):
 
     @command
     def vfs__forget(self, remote_path: str, is_directory: bool = False) -> dict:
-        data = {}
         if is_directory:
-            data['dir'] = remote_path
-        else:
-            data['file'] = remote_path
-        return data
+            return {'dir': remote_path}
+        return {'file': remote_path}
 
     async def is_file(self, remote_path: str) -> bool:
         result: dict = await self.operations__stat(remote_path, self.vfs)
