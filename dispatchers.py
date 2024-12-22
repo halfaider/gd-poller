@@ -400,6 +400,9 @@ class RcloneDispatcher(Dispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
+        if data.get('action', '') == 'delete':
+            self.api_vfs_forget(data['path'], data['is_folder'])
+            return
         self.refresh(data['path'], is_directory=data['is_folder'])
         if data.get('removed_path'):
             self.api_vfs_forget(data['removed_path'], data['is_folder'])
@@ -522,6 +525,9 @@ class RclonePlexDispatcher(Dispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
+        if data.get('action', '') == 'delete':
+            self.rclone_dispatcher.api_vfs_forget(data['path'], data['is_folder'])
+            return
         path_item = PathItem(get_last_dir(data['path'], data['is_folder']), data['path'], data['is_folder'])
         self.path_queue.put(path_item)
         if data.get('removed_path'):
