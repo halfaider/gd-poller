@@ -3,6 +3,7 @@ import functools
 import urllib.parse
 import traceback
 import pathlib
+import inspect
 from typing import Any, Optional
 
 import requests
@@ -192,7 +193,7 @@ class DiscordDispatcher(Dispatcher):
     }
 
     def __init__(self, webhook_id: str, webhook_token: str, *args: tuple, **kwds: dict) -> None:
-        super(DiscordDispatcher).__init__(*args, **kwds)
+        super(DiscordDispatcher, self).__init__(*args, **kwds)
         self._webhook_id = webhook_id
         self._webhook_token = webhook_token
 
@@ -276,71 +277,119 @@ class RcloneDispatcher(Dispatcher):
         self.password = url.password
         try:
             self.url = urllib.parse.urlunparse([url.scheme, url.netloc, '', '', '', ''])
+            self.url_parts = urllib.parse.urlparse(self.url)
         except Exception as e:
             logger.error(traceback.format_exc())
             logger.error(f'url: {url}')
             raise e
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
-        await self.refresh(data['path'], data['is_folder'])
-        if data.get('removed_path'):
-            await self.vfs__forget(data['removed_path'], data['is_folder'])
+    def api(path: str, method: str = 'GET') -> callable:
+        def decorator(class_method: callable) -> callable:
+            @functools.wraps(class_method)
+            async def wrapper(self, *args: tuple, **kwds: dict) -> dict:
+                """
+                params 및 data 값을 입력해야 할 경우 아래의 딕셔너리 형태로 리턴
 
-    def command(method: callable) -> callable:
-        @functools.wraps(method)
-        async def wrapper(self, *args: tuple, **kwds: dict) -> dict:
-            command = '/'.join(method.__name__.split('__'))
-            data: dict = method(self, *args, **kwds)
-            logger.debug(f'{command}: {data}')
-            # {'error': '', ...}
-            # {'result': {'/path/to': 'Invalid...'}}
-            # {'result': {'/path/to': 'OK'}}
-            # {'forgotten': ['/path/to']}
-            return parse_json_response(await request("JSON", f'{self.url}/{command}', data=data, auth=(self.user, self.password)))
-        return wrapper
+                @api('/path/{sub_path}', method='POST')
+                def test(self, sub_path: str, param1: str, param2: int) -> dict:
+                    return {
+                        'params': {
+                            'a': param1,
+                            'b': parma2,
+                        },
+                        'data': {
+                            'c': 3,
+                            'd': 4,
+                        },
+                    }
 
-    async def get_metadata_cache(self) -> tuple[int, int]:
-        result = await self.vfs__stats(self.vfs).get("metadataCache", {})
-        if not result:
-            logger.error(f'No metadata cache statistics, assumed 0...')
-        return result.get('dirs', 0), result.get('files', 0)
+                `/path/{sub_path}` 문자열의 `{sub_path}`는 test 메소드에서 입력받은 동일한 이름의 `sub_path` 파라미터의 값으로 대체 됨
 
-    @command
-    def vfs__stats(self, fs: str) -> dict:
-        if self.vfs:
-            return {'fs': fs}
-        return {}
+                test('login') -> /path/login
 
-    @command
-    def vfs__refresh(self, remote_path: str, recursive: bool = False) -> dict:
+                params 및 data 값을 입력할 필요가 없을 경우 return 하지 않아도 무관
+
+                @api('/ip')
+                def no_return(self) -> dict:
+                    pass
+                """
+                bound = inspect.signature(class_method).bind(self, *args, **kwds)
+                api_path = path.format(**bound.arguments)
+                api = class_method(self, *args, **kwds) or {}
+                params = api.get('params')
+                data = api.get('data')
+                headers = api.get('headers')
+                url = urllib.parse.urlunparse((
+                    self.url_parts.scheme,
+                    self.url_parts.netloc,
+                    api_path,
+                    self.url_parts.params,
+                    self.url_parts.query,
+                    self.url_parts.fragment
+                ))
+                return parse_json_response(await request(
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    auth=(self.user, self.password),
+                    headers=headers
+                ))
+            return wrapper
+        return decorator
+
+    @api('/vfs/stats', method='JSON')
+    def api_vfs_stats(self, fs: str = None) -> dict:
+        tmp = fs or self.vfs
+        if tmp:
+            return {'data': {'fs': fs}}
+
+    @api('/vfs/refresh', method='JSON')
+    def api_vfs_refresh(self, remote_path: str, recursive: bool = False, fs: str = None) -> dict:
         data = {
             'dir': remote_path,
             'recursive': str(recursive).lower()
         }
-        if self.vfs:
-            data['fs'] = self.vfs
-        return data
+        fs_tmp = fs or self.vfs
+        if fs_tmp:
+            data['fs'] = fs_tmp
+        return {'data': data}
 
-    @command
-    def operations__stat(self, remote_path: str, opts: Optional[dict] = None) -> dict:
+    @api('/operations/stat', method='JSON')
+    def api_operations_stat(self, remote_path: str, opts: Optional[dict] = None, fs: str = None) -> dict:
         data = {
             'remote': remote_path,
         }
-        if self.vfs:
-            data['fs'] = self.vfs
+        fs_tmp = fs or self.vfs
+        if fs_tmp:
+            data['fs'] = fs_tmp
         if opts:
             data['opt'] = opts
-        return data
+        return {'data': data}
 
-    @command
-    def vfs__forget(self, remote_path: str, is_directory: bool = False) -> dict:
+    @api('/vfs/forget', method='JSON')
+    def api_vfs_forget(self, local_path: str, is_directory: bool = False) -> dict:
+        data = {}
         if is_directory:
-            return {'dir': remote_path}
-        return {'file': remote_path}
+            data['dir'] = local_path
+        else:
+            data['file'] = local_path
+        return {'data': data}
+
+    async def dispatch(self, data: dict) -> None:
+        '''override'''
+        await self.refresh(data['path'], data['is_folder'])
+        if data.get('removed_path'):
+            await self.api_vfs_forget(data['removed_path'], data['is_folder'])
+
+    async def get_metadata_cache(self) -> tuple[int, int]:
+        result = await self.api_vfs_stats(self.vfs).get("metadataCache", {})
+        if not result:
+            logger.error(f'No metadata cache statistics, assumed 0...')
+        return result.get('dirs', 0), result.get('files', 0)
 
     async def is_file(self, remote_path: str) -> bool:
-        result: dict = await self.operations__stat(remote_path, self.vfs)
+        result: dict = await self.api_operations_stat(remote_path, self.vfs)
         item = result.get('item', {})
         return (item.get('IsDir').lower() == 'true') if item else False
 
@@ -350,20 +399,20 @@ class RcloneDispatcher(Dispatcher):
         parents: list[pathlib.Path] = list(remote_path.parents)
         to_be_tested = remote_path.as_posix() if is_directory else parents.pop(0).as_posix()
         not_exists_paths = []
-        result = await self.vfs__refresh(to_be_tested, recursive)
+        result = await self.api_vfs_refresh(to_be_tested, recursive)
         while not result['result'].get(to_be_tested) == 'OK':
             if result['result'].get(to_be_tested) == 'file does not exist':
                 not_exists_paths.insert(0, to_be_tested)
             if parents:
                 to_be_tested = parents.pop(0).as_posix()
-                result = await self.vfs__refresh(to_be_tested, recursive)
+                result = await self.api_vfs_refresh(to_be_tested, recursive)
             else:
                 logger.warning(f'Hit the top-level path.')
                 break
         for path in not_exists_paths:
             if local_path.exists():
                 break
-            result = await self.vfs__refresh(path, recursive)
+            result = await self.api_vfs_refresh(path, recursive)
             if not result['result'].get(path) == 'OK':
                 break
         logger.debug(f'vfs/refresh result: {result}')
@@ -374,7 +423,49 @@ class PlexDispatcher(Dispatcher):
     def __init__(self, url: str, token: str, *args: tuple, **kwds: dict) -> None:
         super(PlexDispatcher, self).__init__(*args, **kwds)
         self.url = url.strip().strip('/')
+        self.url_parts = urllib.parse.urlparse(self.url)
         self.token = token.strip()
+
+    def api(path: str, method: str = 'GET') -> callable:
+        def decorator(class_method: callable) -> callable:
+            @functools.wraps(class_method)
+            async def wrapper(self, *args: tuple, **kwds: dict) -> dict:
+                bound = inspect.signature(class_method).bind(self, *args, **kwds)
+                api_path = path.format(**bound.arguments)
+                api = class_method(self, *args, **kwds) or {}
+                params = api.get('params', {})
+                params['X-Plex-Token'] = self.token
+                data = api.get('data')
+                url = urllib.parse.urlunparse((
+                    self.url_parts.scheme,
+                    self.url_parts.netloc,
+                    api_path,
+                    self.url_parts.params,
+                    self.url_parts.query,
+                    self.url_parts.fragment
+                ))
+                return parse_json_response(await request(
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    headers={'Accept': 'application/json'}
+                ))
+            return wrapper
+        return decorator
+
+    @api('/library/sections/{section}/refresh')
+    def api_refresh(self, section: int, path: Optional[str] = None, force: bool = False) -> dict:
+        params = {}
+        if force:
+            params['force'] = 1
+        if path:
+            params['path'] = path
+        return {'params': params}
+
+    @api('/library/sections')
+    def api_sections(self) -> dict:
+        pass
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
@@ -384,40 +475,9 @@ class PlexDispatcher(Dispatcher):
             scan_target = pathlib.Path(data.get('removed_path')).parent.as_posix() if not data.get('is_folder') else data.get('removed_path')
             await self.scan(scan_target)
 
-    def api(func: callable) -> callable:
-        @functools.wraps(func)
-        async def wrapper(self, *args: tuple, **kwds: dict) -> dict[str, Any]:
-            params: dict = func(self, *args, **kwds)
-            key = params.pop('key', '/identity')
-            method = params.pop('method', 'GET')
-            params['X-Plex-Token'] = self.token
-            headers = {'Accept': 'application/json'}
-            #logger.debug(f'{key}: {params}')
-            return parse_json_response(await request(method, f'{self.url}{key}', params=params, headers=headers))
-        return wrapper
-
-    @api
-    def refresh(self, section: int, path: Optional[str] = None, force: bool = False) -> dict[str, str]:
-        params = {
-            'key': f'/library/sections/{section}/refresh',
-            'method': 'GET',
-        }
-        if force:
-            params['force'] = 1
-        if path:
-            params['path'] = path
-        return params
-
-    @api
-    def sections(self) -> dict[str, str]:
-        return {
-            'key': '/library/sections',
-            'method': 'GET'
-        }
-
     async def get_section_by_path(self, path: str) -> int:
         plex_path = pathlib.Path(map_path(path, self.mappings)) if self.mappings else pathlib.Path(path)
-        sections = await self.sections()
+        sections = await self.api_sections()
         for directory in sections['MediaContainer']['Directory']:
             for location in directory['Location']:
                 if plex_path.is_relative_to(location['path']) or \
@@ -427,4 +487,4 @@ class PlexDispatcher(Dispatcher):
     async def scan(self, path: str, force: bool = False) -> None:
         section = await self.get_section_by_path(path)
         logger.debug(f'Plex scan: {path=} {section=}')
-        await self.refresh(section, path, force)
+        await self.api_refresh(section, path, force)
