@@ -43,7 +43,22 @@ class PrioritizedItem:
     item: Any=field(compare=False)
 
 
-async def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
+def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
+    try:
+        if method.upper() == 'JSON':
+            return requests.request('POST', url, json=data or {}, timeout=timeout, **kwds)
+        else:
+            return requests.request(method, url, data=data, timeout=timeout, **kwds)
+    except:
+        tb = traceback.format_exc()
+        logger.error(tb)
+        response = requests.Response()
+        response._content = bytes(tb, 'utf-8')
+        response.status_code = 0
+        return response
+
+
+async def request_async(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
     try:
         if method.upper() == 'JSON':
             return await await_sync(requests.request, 'POST', url, json=data or {}, timeout=timeout, **kwds)

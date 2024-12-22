@@ -4,11 +4,15 @@ import urllib.parse
 import traceback
 import pathlib
 import inspect
+import threading
+import asyncio
 from typing import Any, Optional
 
 import requests
 
-from helpers import parse_mappings, request, map_path, parse_json_response
+from helpers import (
+    parse_mappings, request, map_path, parse_json_response
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,15 +20,32 @@ logger = logging.getLogger(__name__)
 class Dispatcher:
 
     def __init__(self, mappings: dict = None) -> None:
+        self.stop_event = threading.Event()
         self.mappings = parse_mappings(mappings) if mappings else None
 
-    async def dispatch(self, data: dict) -> None:
+    async def start(self) -> None:
+        if self.stop_event.is_set():
+            self.stop_event.clear()
+        await self.on_start()
+
+    async def on_start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        if not self.stop_event.is_set():
+            self.stop_event.set()
+        await self.on_stop()
+
+    async def on_stop(self) -> None:
+        pass
+
+    def dispatch(self, data: dict) -> None:
         raise Exception('이 메소드를 구현하세요.')
 
 
 class DummyDispatcher(Dispatcher):
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
         logger.info(f'DummyDispatcher: {data}')
 
@@ -51,7 +72,7 @@ class KavitaDispatcher(Dispatcher):
     def api(method: str = 'POST') -> callable:
         def decorator(func) -> callable:
             @functools.wraps(func)
-            async def wrapper(self, *args: tuple, **kwds: dict) -> requests.Response:
+            def wrapper(self, *args: tuple, **kwds: dict) -> requests.Response:
                 data: dict = func(self, *args, **kwds)
                 end_point = data.pop('endPoint', '/version')
                 by_parameter = data.pop('by_parameter', False)
@@ -59,9 +80,9 @@ class KavitaDispatcher(Dispatcher):
                 logger.debug(f'{end_point}')
                 if by_parameter or method == 'GET':
                     query = urllib.parse.urlencode(data)
-                    return await request(method, f'{self.url}{end_point}?{query}', headers=self.headers)
+                    return request(method, f'{self.url}{end_point}?{query}', headers=self.headers)
                 else:
-                    return await request(method, f'{self.url}{end_point}', json=data, headers=self.headers)
+                    return request(method, f'{self.url}{end_point}', json=data, headers=self.headers)
             return wrapper
         return decorator
 
@@ -80,20 +101,20 @@ class KavitaDispatcher(Dispatcher):
             'folderPath': folder,
         }
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
         if not self.token:
-            await self.set_token()
+            self.set_token()
         kavita_path = map_path(data['path'], self.mappings) if self.mappings else data['path']
         if not data.get('is_folder'):
             kavita_path = pathlib.Path(kavita_path).parent.as_posix()
         logger.debug(f'Kavita scan folder: {kavita_path}')
-        response = await self.library_scan_folder(kavita_path)
+        response = self.library_scan_folder(kavita_path)
         if response.status_code != 200:
             logger.debug(response.text)
 
-    async def set_token(self) -> None:
-        response = await self.plugin_authenticate()
+    def set_token(self) -> None:
+        response = self.plugin_authenticate()
         if response.status_code == 200:
             json_ = response.json()
             self.token = json_.get('token')
@@ -114,17 +135,17 @@ class FlaskfarmDispatcher(Dispatcher):
     def api(method: str = 'POST') -> callable:
         def decorator(func) -> callable:
             @functools.wraps(func)
-            async def wrapper(self, *args: tuple, **kwds: dict) -> dict[str, Any]:
+            def wrapper(self, *args: tuple, **kwds: dict) -> dict[str, Any]:
                 data: dict = func(self, *args, **kwds)
                 data['apikey'] = self.apikey
                 command = f'{self.PACKAGE}/api/' + '/'.join(func.__name__.split('__'))
                 logger.debug(f'{command}: {data}')
                 match method:
                     case 'POST':
-                        return await request('POST', f'{self.url}/{command}', data=data)
+                        return request('POST', f'{self.url}/{command}', data=data)
                     case 'GET':
                         query = urllib.parse.urlencode(data)
-                        return await request('GET', f'{self.url}/{command}?{query}')
+                        return request('GET', f'{self.url}/{command}?{query}')
             return wrapper
         return decorator
 
@@ -133,17 +154,17 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
 
     PACKAGE = 'gds_tool'
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
         match (data.get('action'), data.get('is_folder')):
             case 'create' | 'move', _:
-                await self.fp__broadcast(data['path'], 'ADD')
+                self.fp__broadcast(data['path'], 'ADD')
             case 'delete', True:
-                await self.fp__broadcast(data['path'], 'REMOVE_FOLDER')
+                self.fp__broadcast(data['path'], 'REMOVE_FOLDER')
             case 'delete', False:
-                await self.fp__broadcast(data['path'], 'REMOVE_FILE')
+                self.fp__broadcast(data['path'], 'REMOVE_FILE')
             case 'edit', _:
-                await self.fp__broadcast(data['path'], 'REFRESH')
+                self.fp__broadcast(data['path'], 'REFRESH')
 
     @FlaskfarmDispatcher.api('GET')
     def fp__broadcast(self, path: str, mode: str) -> requests.Response:
@@ -161,17 +182,17 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
 
     PACKAGE = 'plex_mate'
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
         remote_path = map_path(data['path'], self.mappings) if self.mappings else data['path']
         if data['action'] == 'delete':
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
         else:
             mode = 'ADD'
-        logger.info(f'Plexmate: {await self.scan__do_scan(remote_path, mode=mode)}')
+        logger.info(f'Plexmate: {self.scan__do_scan(remote_path, mode=mode)}')
         if data.get('removed_path'):
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
-            logger.info(f"Plexmate: {await self.scan__do_scan(data.get('removed_path'), mode=mode)}")
+            logger.info(f"Plexmate: {self.scan__do_scan(data.get('removed_path'), mode=mode)}")
 
     @FlaskfarmDispatcher.api('POST')
     def scan__do_scan(self, dir: str, mode: str = 'ADD') -> requests.Response:
@@ -214,11 +235,11 @@ class DiscordDispatcher(Dispatcher):
 
     def api(func) -> callable:
         @functools.wraps(func)
-        async def wrapper(self, *args, **kwds) -> dict:
+        def wrapper(self, *args, **kwds) -> dict:
             params = func(self, *args, ** kwds)
             api = params.pop('api')
             method = params.pop('method')
-            return await request(method, f'{self.API_URL}{api}', json=params, headers=self.headers)
+            return request(method, f'{self.API_URL}{api}', json=params, headers=self.headers)
         return wrapper
 
     @api
@@ -234,7 +255,7 @@ class DiscordDispatcher(Dispatcher):
             params['content'] = content
         return params
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
         embed = {
             'color': self.COLORS.get(data['action'], self.COLORS['default']),
@@ -254,7 +275,7 @@ class DiscordDispatcher(Dispatcher):
         embed['fields'].append({'name': 'MIME', 'value': data['target'][2]})
         embed['fields'].append({'name': 'Link', 'value': data['url']})
         embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
-        response = await self.webhook(embeds=[embed])
+        response = self.webhook(embeds=[embed])
         log_msg = f"Discord target=\"{data['target'][0]}\" status_code={response.status_code}"
         if str(response.status_code)[0] == '2':
             logger.debug(log_msg)
@@ -286,7 +307,7 @@ class RcloneDispatcher(Dispatcher):
     def api(path: str, method: str = 'GET') -> callable:
         def decorator(class_method: callable) -> callable:
             @functools.wraps(class_method)
-            async def wrapper(self, *args: tuple, **kwds: dict) -> dict:
+            def wrapper(self, *args: tuple, **kwds: dict) -> dict:
                 """
                 params 및 data 값을 입력해야 할 경우 아래의 딕셔너리 형태로 리턴
 
@@ -327,7 +348,7 @@ class RcloneDispatcher(Dispatcher):
                     self.url_parts.query,
                     self.url_parts.fragment
                 ))
-                return parse_json_response(await request(
+                return parse_json_response(request(
                     method,
                     url,
                     params=params,
@@ -376,43 +397,43 @@ class RcloneDispatcher(Dispatcher):
             data['file'] = local_path
         return {'data': data}
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
-        await self.refresh(data['path'], data['is_folder'])
+        self.refresh(data['path'], data['is_folder'])
         if data.get('removed_path'):
-            await self.api_vfs_forget(data['removed_path'], data['is_folder'])
+            self.api_vfs_forget(data['removed_path'], data['is_folder'])
 
-    async def get_metadata_cache(self) -> tuple[int, int]:
-        result = await self.api_vfs_stats(self.vfs).get("metadataCache", {})
+    def get_metadata_cache(self) -> tuple[int, int]:
+        result = self.api_vfs_stats(self.vfs).get("metadataCache", {})
         if not result:
             logger.error(f'No metadata cache statistics, assumed 0...')
         return result.get('dirs', 0), result.get('files', 0)
 
-    async def is_file(self, remote_path: str) -> bool:
-        result: dict = await self.api_operations_stat(remote_path, self.vfs)
+    def is_file(self, remote_path: str) -> bool:
+        result: dict = self.api_operations_stat(remote_path, self.vfs)
         item = result.get('item', {})
         return (item.get('IsDir').lower() == 'true') if item else False
 
-    async def refresh(self, local_path: str, recursive: bool = False, is_directory: bool = False) -> None:
+    def refresh(self, local_path: str, recursive: bool = False, is_directory: bool = False) -> None:
         local_path = pathlib.Path(local_path)
         remote_path = pathlib.Path(map_path(str(local_path), self.mappings)) if self.mappings else local_path
         parents: list[pathlib.Path] = list(remote_path.parents)
         to_be_tested = remote_path.as_posix() if is_directory else parents.pop(0).as_posix()
         not_exists_paths = []
-        result = await self.api_vfs_refresh(to_be_tested, recursive)
+        result = self.api_vfs_refresh(to_be_tested, recursive)
         while not result['result'].get(to_be_tested) == 'OK':
             if result['result'].get(to_be_tested) == 'file does not exist':
                 not_exists_paths.insert(0, to_be_tested)
             if parents:
                 to_be_tested = parents.pop(0).as_posix()
-                result = await self.api_vfs_refresh(to_be_tested, recursive)
+                result = self.api_vfs_refresh(to_be_tested, recursive)
             else:
                 logger.warning(f'Hit the top-level path.')
                 break
         for path in not_exists_paths:
             if local_path.exists():
                 break
-            result = await self.api_vfs_refresh(path, recursive)
+            result = self.api_vfs_refresh(path, recursive)
             if not result['result'].get(path) == 'OK':
                 break
         logger.debug(f'vfs/refresh result: {result}')
@@ -429,7 +450,7 @@ class PlexDispatcher(Dispatcher):
     def api(path: str, method: str = 'GET') -> callable:
         def decorator(class_method: callable) -> callable:
             @functools.wraps(class_method)
-            async def wrapper(self, *args: tuple, **kwds: dict) -> dict:
+            def wrapper(self, *args: tuple, **kwds: dict) -> dict:
                 bound = inspect.signature(class_method).bind(self, *args, **kwds)
                 api_path = path.format(**bound.arguments)
                 api = class_method(self, *args, **kwds) or {}
@@ -444,7 +465,7 @@ class PlexDispatcher(Dispatcher):
                     self.url_parts.query,
                     self.url_parts.fragment
                 ))
-                return parse_json_response(await request(
+                return parse_json_response(request(
                     method,
                     url,
                     params=params,
@@ -467,24 +488,33 @@ class PlexDispatcher(Dispatcher):
     def api_sections(self) -> dict:
         pass
 
-    async def dispatch(self, data: dict) -> None:
+    def dispatch(self, data: dict) -> None:
         '''override'''
         scan_target = pathlib.Path(data['path']).parent.as_posix() if not data.get('is_folder') else data['path']
-        await self.scan(scan_target)
+        self.scan(scan_target)
         if data.get('removed_path'):
             scan_target = pathlib.Path(data.get('removed_path')).parent.as_posix() if not data.get('is_folder') else data.get('removed_path')
-            await self.scan(scan_target)
+            self.scan(scan_target)
 
-    async def get_section_by_path(self, path: str) -> int:
+    def get_section_by_path(self, path: str) -> int:
         plex_path = pathlib.Path(map_path(path, self.mappings)) if self.mappings else pathlib.Path(path)
-        sections = await self.api_sections()
+        sections = self.api_sections()
         for directory in sections['MediaContainer']['Directory']:
             for location in directory['Location']:
                 if plex_path.is_relative_to(location['path']) or \
                    pathlib.Path(location['path']).is_relative_to(plex_path):
                     return int(directory['key'])
 
-    async def scan(self, path: str, force: bool = False) -> None:
-        section = await self.get_section_by_path(path)
+    def scan(self, path: str, force: bool = False) -> None:
+        section = self.get_section_by_path(path)
         logger.debug(f'Plex scan: {path=} {section=}')
-        await self.api_refresh(section, path, force)
+        self.api_refresh(section, path, force)
+
+
+class RclonePlexDispatcher(Dispatcher):
+
+    def __init__(self, rclone_url, plex_url, plex_token, *args: tuple, **kwds: dict) -> None:
+        super(RclonePlexDispatcher, self).__init__(*args, **kwds)
+        self.rclone_dispatcher = RcloneDispatcher(rclone_url, *args, **kwds)
+        self.plex_dispatcher = PlexDispatcher(plex_url, plex_token, *args, **kwds)
+

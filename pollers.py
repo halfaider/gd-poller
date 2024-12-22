@@ -161,6 +161,8 @@ class GoogleDrivePoller:
         self.tasks.append(asyncio.create_task(self.dispatch(), name=self.name))
         for target in self.targets:
             self.tasks.append(asyncio.create_task(self.poll(target), name=target))
+        for dispatcher in self.dispatcher_list:
+            self.tasks.append(asyncio.create_task(dispatcher.start(), name=f'{self.name}-{dispatcher.__class__.__name__}'))
         try:
             await asyncio.gather(*self.tasks)
         except asyncio.CancelledError:
@@ -168,6 +170,8 @@ class GoogleDrivePoller:
 
     async def stop(self) -> None:
         self.stop_event.set()
+        for dispatcher in self.dispatcher_list:
+            dispatcher.stop()
         for task in self.tasks:
             logger.debug(task)
             if not task.done():
@@ -255,7 +259,8 @@ class ActivityPoller(GoogleDrivePoller):
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
                     for dispatcher in self.dispatcher_list:
-                        await dispatcher.dispatch(data)
+                        # activity 발생 순서대로, dispatcher 배치 순서대로
+                        dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())
                     logger.error(f'{data=}')
