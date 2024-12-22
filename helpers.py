@@ -50,8 +50,6 @@ class PathItem:
     key: str
     path: str
     is_directory: bool = False
-    is_removed: bool = False
-    scan_mode: str = None
 
 
 class PathQueue:
