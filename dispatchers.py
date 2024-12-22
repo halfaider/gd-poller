@@ -155,17 +155,24 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
 
     PACKAGE = 'gds_tool'
 
+    def __init__(self, queue_interval: int = 30, *args: tuple, **kwds: dict) -> None:
+        super(GDSToolDispatcher, self).__init__(*args, **kwds)
+        self.queue_interval = queue_interval
+        self.path_queue = PathQueue()
+
     def dispatch(self, data: dict) -> None:
         '''override'''
+        path_item = PathItem(get_last_dir(data['path'], data['is_folder']), data['path'], data['is_folder'])
         match (data.get('action'), data.get('is_folder')):
             case 'create' | 'move', _:
-                self.fp__broadcast(data['path'], 'ADD')
+                path_item.scan_mode = 'ADD'
             case 'delete', True:
-                self.fp__broadcast(data['path'], 'REMOVE_FOLDER')
+                path_item.scan_mode = 'REMOVE_FOLDER'
             case 'delete', False:
-                self.fp__broadcast(data['path'], 'REMOVE_FILE')
+                path_item.scan_mode = 'REMOVE_FILE'
             case 'edit', _:
-                self.fp__broadcast(data['path'], 'REFRESH')
+                path_item.scan_mode = 'REFRESH'
+        self.path_queue.put(path_item)
 
     @FlaskfarmDispatcher.api('GET')
     def fp__broadcast(self, path: str, mode: str) -> requests.Response:
@@ -177,6 +184,19 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
                 'gds_path': gds_path,
                 'scan_mode': mode
             }
+
+    async def on_start(self) -> None:
+        '''override'''
+        logger.debug(f'GDSToolDispatcher starts...')
+        while not self.stop_event.is_set():
+            while not self.path_queue.is_empty():
+                item = self.path_queue.get()
+                logger.debug(item)
+                self.fp__broadcast(item.key, item.scan_mode)
+            for _ in range(self.queue_interval):
+                await asyncio.sleep(1)
+                if self.stop_event.is_set(): break
+        logger.debug(f'GDSToolDispatcher ends...')
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
@@ -536,10 +556,10 @@ class RclonePlexDispatcher(Dispatcher):
                 item = self.path_queue.get()
                 logger.debug(item)
                 if item.is_removed:
-                    self.rclone_dispatcher.api_vfs_forget(item.path, item.is_directory)
+                    self.rclone_dispatcher.api_vfs_forget(item.key, True)
                 else:
-                    self.rclone_dispatcher.refresh(item.path, is_directory=item.is_directory)
-                self.plex_dispatcher.scan(item.path, is_directory=item.is_directory)
+                    self.rclone_dispatcher.refresh(item.key, is_directory=True)
+                self.plex_dispatcher.scan(item.key, is_directory=True)
             for _ in range(self.queue_interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
