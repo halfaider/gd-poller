@@ -11,7 +11,8 @@ from typing import Any, Optional
 import requests
 
 from helpers import (
-    parse_mappings, request, map_path, parse_json_response
+    PathItem, PathQueue,
+    parse_mappings, request, map_path, parse_json_response, get_last_dir
 )
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class Dispatcher:
 
-    def __init__(self, mappings: dict = None) -> None:
+    def __init__(self, mappings: list = None) -> None:
         self.stop_event = threading.Event()
         self.mappings = parse_mappings(mappings) if mappings else None
 
@@ -399,7 +400,7 @@ class RcloneDispatcher(Dispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
-        self.refresh(data['path'], data['is_folder'])
+        self.refresh(data['path'], is_directory=data['is_folder'])
         if data.get('removed_path'):
             self.api_vfs_forget(data['removed_path'], data['is_folder'])
 
@@ -490,11 +491,9 @@ class PlexDispatcher(Dispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
-        scan_target = pathlib.Path(data['path']).parent.as_posix() if not data.get('is_folder') else data['path']
-        self.scan(scan_target)
+        self.scan(data['path'], is_directory=data.get('is_folder'))
         if data.get('removed_path'):
-            scan_target = pathlib.Path(data.get('removed_path')).parent.as_posix() if not data.get('is_folder') else data.get('removed_path')
-            self.scan(scan_target)
+            self.scan(data.get('removed_path'), is_directory=data.get('is_folder'))
 
     def get_section_by_path(self, path: str) -> int:
         plex_path = pathlib.Path(map_path(path, self.mappings)) if self.mappings else pathlib.Path(path)
@@ -505,16 +504,43 @@ class PlexDispatcher(Dispatcher):
                    pathlib.Path(location['path']).is_relative_to(plex_path):
                     return int(directory['key'])
 
-    def scan(self, path: str, force: bool = False) -> None:
-        section = self.get_section_by_path(path)
-        logger.debug(f'Plex scan: {path=} {section=}')
-        self.api_refresh(section, path, force)
+    def scan(self, path: str, force: bool = False, is_directory: bool = False) -> None:
+        scan_target = path if is_directory else pathlib.Path(path).parent.as_posix()
+        section = self.get_section_by_path(scan_target) or -1
+        logger.debug(f'Plex scan: {scan_target=} {section=}')
+        self.api_refresh(section, scan_target, force)
 
 
 class RclonePlexDispatcher(Dispatcher):
 
-    def __init__(self, rclone_url, plex_url, plex_token, *args: tuple, **kwds: dict) -> None:
+    def __init__(self, rclone_url, plex_url, plex_token, queue_interval: int = 30, rclone_mappings: dict = None, plex_mappings: dict = None, *args: tuple, **kwds: dict) -> None:
         super(RclonePlexDispatcher, self).__init__(*args, **kwds)
-        self.rclone_dispatcher = RcloneDispatcher(rclone_url, *args, **kwds)
-        self.plex_dispatcher = PlexDispatcher(plex_url, plex_token, *args, **kwds)
+        self.rclone_dispatcher = RcloneDispatcher(rclone_url, mappings=rclone_mappings, *args, **kwds)
+        self.plex_dispatcher = PlexDispatcher(plex_url, plex_token, mappings=plex_mappings, *args, **kwds)
+        self.path_queue = PathQueue()
+        self.queue_interval = queue_interval
 
+    def dispatch(self, data: dict) -> None:
+        '''override'''
+        path_item = PathItem(get_last_dir(data['path'], data['is_folder']), data['path'], data['is_folder'])
+        self.path_queue.put(path_item)
+        if data.get('removed_path'):
+            forget_path = PathItem(get_last_dir(data['removed_path'], data['is_folder']), data['removed_path'], data['is_folder'], is_removed=True)
+            self.path_queue.put(forget_path)
+
+    async def on_start(self) -> None:
+        '''override'''
+        logger.debug(f'RclonePlexDispatcher starts...')
+        while not self.stop_event.is_set():
+            while not self.path_queue.is_empty():
+                item = self.path_queue.get()
+                logger.debug(item)
+                if item.is_removed:
+                    self.rclone_dispatcher.api_vfs_forget(item.path, item.is_directory)
+                else:
+                    self.rclone_dispatcher.refresh(item.path, is_directory=item.is_directory)
+                self.plex_dispatcher.scan(item.path, is_directory=item.is_directory)
+            for _ in range(self.queue_interval):
+                await asyncio.sleep(1)
+                if self.stop_event.is_set(): break
+        logger.debug(f'RclonePlexDispatcher ends...')

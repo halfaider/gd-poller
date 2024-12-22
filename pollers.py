@@ -171,7 +171,7 @@ class GoogleDrivePoller:
     async def stop(self) -> None:
         self.stop_event.set()
         for dispatcher in self.dispatcher_list:
-            dispatcher.stop()
+            await dispatcher.stop()
         for task in self.tasks:
             logger.debug(task)
             if not task.done():
@@ -270,6 +270,7 @@ class ActivityPoller(GoogleDrivePoller):
                 # 큐에서 각 아이템을 꺼낸 후 sleep
                 for _ in range(self.dispatch_interval):
                     await asyncio.sleep(1)
+                    if self.stop_event.is_set(): break
             # 큐에서 아이템을 모두 꺼낸 후 sleep
             await asyncio.sleep(1)
         logger.info(f'Dispatching task ends: {self.name}')

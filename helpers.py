@@ -3,8 +3,10 @@ import logging
 import re
 import asyncio
 import functools
+import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
+from collections import deque
 
 import requests
 
@@ -41,6 +43,45 @@ class RedactedFormatter(logging.Formatter):
 class PrioritizedItem:
     priority: float
     item: Any=field(compare=False)
+
+
+@dataclass(init=True)
+class PathItem:
+    key: str
+    path: str
+    is_directory: bool = False
+    is_removed: bool = False
+
+
+class PathQueue:
+
+    def __init__(self):
+        self._set = set()
+        self._queue = deque()
+
+    @property
+    def set(self) -> set:
+        return self._set
+
+    @property
+    def queue(self) -> deque:
+        return self._queue
+
+    def put(self, item: PathItem) -> None:
+        if item.key not in self.set:
+            self.set.add(item.key)
+            self.queue.appendleft(item)
+
+    def get(self) -> PathItem:
+        item: PathItem = self.queue.pop()
+        self.set.remove(item.key)
+        return item
+
+    def is_empty(self) -> bool:
+        return len(self) < 1
+
+    def __len__(self):
+        return len(self.queue)
 
 
 def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
@@ -103,3 +144,7 @@ async def stop_event_loop() -> None:
 
 async def await_sync(func: callable, *args, **kwds) -> Any:
     return await asyncio.get_running_loop().run_in_executor(None, functools.partial(func, *args, **kwds))
+
+
+def get_last_dir(path_: str, is_dir: bool = False) -> str:
+    return path_ if is_dir else pathlib.Path(path_).parent.as_posix()
