@@ -525,8 +525,7 @@ class RclonePlexDispatcher(Dispatcher):
         path_item = PathItem(get_last_dir(data['path'], data['is_folder']), data['path'], data['is_folder'])
         self.path_queue.put(path_item)
         if data.get('removed_path'):
-            forget_path = PathItem(get_last_dir(data['removed_path'], data['is_folder']), data['removed_path'], data['is_folder'])
-            self.rclone_dispatcher.api_vfs_forget(forget_path, data['is_folder'])
+            self.rclone_dispatcher.api_vfs_forget(data['removed_path'], data['is_folder'])
 
     async def on_start(self) -> None:
         '''override'''
