@@ -20,12 +20,14 @@ google_drive:
     client_secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     refresh_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+
 pollers:
   - name: '단순 로그'
     targets:
       - '{폴더id}#/GDRIVE/DATA/VOD원본'
     dispatchers:
       - class: DummyDispatcher
+
   - name: '디스코드 알람용'
     polling_interval: 60
     page_size: 100
@@ -43,6 +45,7 @@ pollers:
       - '{폴더ID}#/mnt/gds/GDRIVE/DATA/VOD원본'
     dispatchers:
       - <<: *DISCORD
+
   - name: '카비타 스캔용'
     polling_interval: 120
     page_size: 30
@@ -53,6 +56,8 @@ pollers:
     actions:
       - 'create'
       - 'move'
+      - 'delete'
+      - 'rename'
     dispatchers:
       - class: RcloneDispatcher
         <<: *RCLONE
@@ -60,6 +65,7 @@ pollers:
           - '/mnt/gds2/GDRIVE:/GDRIVE'
       - class: KavitaDispatcher
         <<: *KAVITA
+
   - name: 'gds_tool 방송용'
     polling_interval: 60
     page_size: 35
@@ -85,6 +91,7 @@ pollers:
       - '*.ass'
       - '*/.git/*'
       - '*.log.*'
+
   - name: '플렉스 스캔용'
     targets:
       - '{폴더ID}#/GDRIVE/VIDEO/국내TV/드라마'
@@ -104,7 +111,36 @@ pollers:
     dispatchers:
       - class: RcloneDispatcher
         <<: *RCLONE
-      - class: PlexDispatcher
+      - class: PlexmateDispatcher
         <<: *FLASKFARM
         mappings:
           - '/GDRIVE:/mnt/gds2/GDRIVE'
+
+  - name: '일정 간격으로 activity를 수집 후 한번에 처리(부모 폴더를 새로고침 및 스캔)'
+    targets:
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/일본/가수'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 가, 나, 다, 라, ..., 하
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 0-9, A, B, C, D, ..., Z
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/차트'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/차트/지니 시대별 인기곡'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/차트/지니 차트'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/가수' # 0-9, A, B, C, ..., L, M, N
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/가수' # O, P, Q, ..., X, Y, Z
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/차트'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/시대별 인기곡'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/지니 차트'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/V.A'
+      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/OST'
+    actions:
+      - 'create'
+      - 'move'
+      - 'delete'
+    dispatchers:
+      - class: RclonePlexDispatcher
+        rclone_url: 'http://user:pass@172.17.0.1:5574#gds2'
+        rclone_mappings:
+          - '/mnt/gds/GDRIVE:/GDRIVE'
+        plex_url: 'htto://plex:32400'
+        plex_token: '{PLEX_TOKEN}'
+        queue_interval: 60
+      - <<: *DISCORD
