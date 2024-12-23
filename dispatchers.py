@@ -532,6 +532,8 @@ class RclonePlexDispatcher(Dispatcher):
         self.path_queue.put(path_item)
         if data.get('removed_path'):
             self.rclone_dispatcher.api_vfs_forget(data['removed_path'], data['is_folder'])
+            path_item = PathItem(get_last_dir(data['removed_path'], data['is_folder']), data['removed_path'], data['is_folder'], should_refresh=False)
+            self.path_queue.put(path_item)
 
     async def on_start(self) -> None:
         '''override'''
@@ -540,8 +542,10 @@ class RclonePlexDispatcher(Dispatcher):
             while not self.path_queue.is_empty():
                 item = self.path_queue.get()
                 logger.debug(item)
-                self.rclone_dispatcher.refresh(item.key, is_directory=True)
-                self.plex_dispatcher.scan(item.key, is_directory=True)
+                if item.should_refresh:
+                    self.rclone_dispatcher.refresh(item.key, is_directory=True)
+                if item.should_scan:
+                    self.plex_dispatcher.scan(item.key, is_directory=True)
             for _ in range(self.queue_interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break

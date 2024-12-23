@@ -50,6 +50,8 @@ class PathItem:
     key: str
     path: str
     is_directory: bool = False
+    should_scan: bool = True
+    should_refresh: bool =True
 
 
 class PathQueue:
