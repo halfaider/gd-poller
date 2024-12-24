@@ -12,7 +12,7 @@ import requests
 
 from helpers import (
     PathItem, PathQueue,
-    parse_mappings, request, map_path, parse_json_response, get_last_dir
+    parse_mappings, request, map_path, parse_json_response
 )
 
 logger = logging.getLogger(__name__)
@@ -528,11 +528,22 @@ class RclonePlexDispatcher(Dispatcher):
         if data.get('action', '') == 'delete':
             self.rclone_dispatcher.api_vfs_forget(data['path'], data['is_folder'])
             return
-        path_item = PathItem(get_last_dir(data['path'], data['is_folder']), data['path'], data['is_folder'])
+        target = pathlib.Path(data['path'])
+        path_item = PathItem(
+            target.as_posix() if data['is_folder'] else target.parent.as_posix(),
+            target.as_posix(),
+            data['is_folder']
+        )
         self.path_queue.put(path_item)
         if data.get('removed_path'):
-            self.rclone_dispatcher.api_vfs_forget(data['removed_path'], data['is_folder'])
-            path_item = PathItem(get_last_dir(data['removed_path'], data['is_folder']), data['removed_path'], data['is_folder'], should_refresh=False)
+            removed_fullpath = pathlib.Path(data["removed_path"], data['target'][0])
+            self.rclone_dispatcher.api_vfs_forget(removed_fullpath.as_posix(), data['is_folder'])
+            path_item = PathItem(
+                removed_fullpath.as_posix() if data['is_folder'] else removed_fullpath.parent.as_posix(),
+                removed_fullpath.as_posix(),
+                data['is_folder'],
+                should_refresh=False
+            )
             self.path_queue.put(path_item)
 
     async def on_start(self) -> None:
