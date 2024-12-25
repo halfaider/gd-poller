@@ -269,7 +269,7 @@ class DiscordDispatcher(Dispatcher):
         }
         embed['fields'].append({'name': 'Path', 'value': data['path']})
         if data['action'] == 'move':
-            embed['fields'].append({'name': 'From', 'value': str(pathlib.Path(data["removed_path"], data['target'][0])) if data['removed_path'] else f'unknown'})
+            embed['fields'].append({'name': 'From', 'value': data['removed_path'] if data['removed_path'] else f'unknown'})
         elif data.get('action_detail'):
             embed['fields'].append({'name': 'Details', 'value': data["action_detail"]})
         embed['fields'].append({'name': 'ID', 'value': data['target'][1]})
@@ -536,11 +536,10 @@ class RclonePlexDispatcher(Dispatcher):
         )
         self.path_queue.put(path_item)
         if data.get('removed_path'):
-            removed_fullpath = pathlib.Path(data["removed_path"], data['target'][0])
-            self.rclone_dispatcher.api_vfs_forget(removed_fullpath.as_posix(), data['is_folder'])
+            self.rclone_dispatcher.api_vfs_forget(data["removed_path"], data['is_folder'])
             path_item = PathItem(
-                removed_fullpath.as_posix() if data['is_folder'] else removed_fullpath.parent.as_posix(),
-                removed_fullpath.as_posix(),
+                data["removed_path"] if data['is_folder'] else pathlib.Path(data["removed_path"]).parent.as_posix(),
+                data["removed_path"],
                 data['is_folder'],
                 should_refresh=False
             )

@@ -252,7 +252,8 @@ class ActivityPoller(GoogleDrivePoller):
                         logger.debug(f'Moved from: {data["action_detail"]}')
                         try:
                             removed_parent_id = data['action_detail'][1].partition('/')[-1]
-                            data['removed_path'], _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                            removed_path, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                            data['removed_path'] = pathlib.Path(removed_path, data['target'][0]).as_posix()
                         except Exception as e:
                             logger.error(traceback.format_exc())
                     # 기타 정보

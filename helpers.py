@@ -57,25 +57,25 @@ class PathItem:
 class PathQueue:
 
     def __init__(self):
-        self._set = set()
+        self._keys = set()
         self._queue = deque()
 
     @property
-    def set(self) -> set:
-        return self._set
+    def keys(self) -> set:
+        return self._keys
 
     @property
     def queue(self) -> deque:
         return self._queue
 
     def put(self, item: PathItem) -> None:
-        if item.key not in self.set:
-            self.set.add(item.key)
+        if item.key not in self.keys:
+            self.keys.add(item.key)
             self.queue.appendleft(item)
 
     def get(self) -> PathItem:
         item: PathItem = self.queue.pop()
-        self.set.remove(item.key)
+        self.keys.remove(item.key)
         return item
 
     def is_empty(self) -> bool:
