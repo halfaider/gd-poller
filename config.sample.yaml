@@ -142,5 +142,5 @@ pollers:
           - '/mnt/gds/GDRIVE:/GDRIVE'
         plex_url: 'htto://plex:32400'
         plex_token: '{PLEX_TOKEN}'
-        queue_interval: 60
+        interval: 60
       - <<: *DISCORD

@@ -6,7 +6,6 @@ import functools
 import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
-from collections import deque
 
 import requests
 
@@ -43,46 +42,6 @@ class RedactedFormatter(logging.Formatter):
 class PrioritizedItem:
     priority: float
     item: Any=field(compare=False)
-
-
-@dataclass(init=True)
-class PathItem:
-    key: str
-    path: str
-    is_directory: bool = False
-    should_scan: bool = True
-    should_refresh: bool =True
-
-
-class PathQueue:
-
-    def __init__(self):
-        self._keys = set()
-        self._queue = deque()
-
-    @property
-    def keys(self) -> set:
-        return self._keys
-
-    @property
-    def queue(self) -> deque:
-        return self._queue
-
-    def put(self, item: PathItem) -> None:
-        if item.key not in self.keys:
-            self.keys.add(item.key)
-            self.queue.appendleft(item)
-
-    def get(self) -> PathItem:
-        item: PathItem = self.queue.pop()
-        self.keys.remove(item.key)
-        return item
-
-    def is_empty(self) -> bool:
-        return len(self) < 1
-
-    def __len__(self):
-        return len(self.queue)
 
 
 def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
