@@ -11,6 +11,17 @@ x-kavita: &KAVITA
   url: 'http://kavita:5000'
   apikey: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
+logging:
+  level: 'DEBUG'
+  format: '%(asctime)s|%(levelname).3s|%(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
+  redacted_patterns:
+    - 'apikey=(.{10})'
+    - "'apikey': '(.{10})'"
+    - "'X-Plex-Token': '(.{20})'"
+    - "'X-Plex-Token=(.{20})'"
+    - "webhooks/(.+)/(.+):\\s{"
+  redacted_substitute: '<REDACTED>'
+
 google_drive:
   scopes:
     - 'https://www.googleapis.com/auth/drive.readonly'

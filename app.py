@@ -40,23 +40,18 @@ from helpers import RedactedFormatter, stop_event_loop
 
 logger = logging.getLogger(__name__)
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
-REDACTED_PATTERNS = (
-    'apikey=(.{10})',
-    "'apikey': '(.{10})'",
-    "'X-Plex-Token': '(.{20})'",
-    "'X-Plex-Token=(.{20})'",
-    "webhooks/(.+)/(.+):\\s{",
-)
 
 
-def set_logger(logger_: logging.Logger | None) -> None:
+def set_logger(logger_: logging.Logger, level: str = 'DEBUG', format: str = None, redacted_patterns: list = None, redacted_substitute: str = '<REDACTED>') -> None:
     if logger_:
         level = logger_.level
         handlers = logger_.handlers
     else:
-        level = logging.DEBUG
+        level = getattr(logging, level.upper())
+        format = format or '%(asctime)s|%(levelname).3s|%(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
+        redacted_patterns = redacted_patterns or ('apikey=(.{10})', "'apikey': '(.{10})'", "'X-Plex-Token': '(.{20})'", "'X-Plex-Token=(.{20})'", "webhooks/(.+)/(.+):\\s{")
+        fomatter = RedactedFormatter(patterns=redacted_patterns, substitute=redacted_substitute, fmt=format)
         stream_handler = logging.StreamHandler()
-        fomatter = RedactedFormatter(patterns=REDACTED_PATTERNS, substitute='<REDACTED>', fmt='%(asctime)s %(levelname).3s %(message)s <%(module)s:%(lineno)d>')
         stream_handler.setFormatter(fomatter)
         handlers = [
             stream_handler
@@ -83,7 +78,7 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         with CONFIG_FILE.open(mode='r', encoding='utf-8') as file:
             config = yaml.safe_load(file.read())
 
-        set_logger(kwds.get('logger'))
+        set_logger(kwds.get('logger'), config['logging']['level'], config['logging']['format'], config['logging']['redacted_patterns'], config['logging']['redacted_substitute'])
 
         drive = GoogleDrive(config['google_drive']['token'], config['google_drive']['scopes'], {})
         for poller in config['pollers']:
