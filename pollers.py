@@ -7,7 +7,7 @@ import asyncio
 from typing import Any, Iterable
 
 import dispatchers
-from gd_api import GoogleDrive
+from apis import GoogleDrive
 from helpers import await_sync, PrioritizedItem
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo

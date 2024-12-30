@@ -6,6 +6,7 @@ import functools
 import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
+from collections import OrderedDict
 
 import requests
 
@@ -38,6 +39,35 @@ class RedactedFormatter(logging.Formatter):
         return pattern.sub(self.substitute, text)
 
 
+class FolderBuffer:
+
+    def __init__(self) -> None:
+        self.buffer = OrderedDict()
+
+    def put(self, path: str, is_directory: bool = False, should_refresh: bool = True, should_scan: bool = True) -> None:
+        target = pathlib.Path(path)
+        parent = target.as_posix() if is_directory else target.parent.as_posix()
+        if parent in self.buffer:
+            children: set[str] = self.buffer[parent]['children']
+            children.add(target.as_posix())
+        else:
+            self.buffer[parent] = {
+                'children': set([target.as_posix()]),
+                'should_refresh': should_refresh,
+                'should_scan': should_scan,
+            }
+
+    def pop(self) -> tuple[str, dict]:
+        if self.buffer:
+            return self.buffer.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self.buffer)
+
+    def __getitem__(self, key: str) -> dict:
+        return self.buffer.get(key)
+
+
 @dataclass(order=True)
 class PrioritizedItem:
     priority: float
@@ -47,9 +77,10 @@ class PrioritizedItem:
 def request(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
     try:
         if method.upper() == 'JSON':
-            return requests.request('POST', url, json=data or {}, timeout=timeout, **kwds)
+            response = requests.request('POST', url, json=data or {}, timeout=timeout, **kwds)
         else:
-            return requests.request(method, url, data=data, timeout=timeout, **kwds)
+            response = requests.request(method, url, data=data, timeout=timeout, **kwds)
+        return response
     except:
         tb = traceback.format_exc()
         logger.error(tb)
@@ -81,7 +112,7 @@ def parse_json_response(response: requests.Response) -> dict[str, Any]:
         result = {
             'status_code': response.status_code,
             'content': response.text.strip(),
-            'exception': f'{repr(e)}',
+            'exception': repr(e),
         }
     return result
 

@@ -34,7 +34,7 @@ except:
 import yaml
 
 import dispatchers
-from gd_api import GoogleDrive
+from apis import GoogleDrive
 from pollers import ActivityPoller
 from helpers import RedactedFormatter, stop_event_loop
 
@@ -56,7 +56,7 @@ def set_logger(logger_: logging.Logger, level: str = 'DEBUG', format: str = None
         handlers = [
             stream_handler
         ]
-    for logger_name in [__name__, 'dispatchers', 'gd_api', 'helpers', 'pollers']:
+    for logger_name in [__name__, 'dispatchers', 'apis', 'helpers', 'pollers']:
         logger_ = logging.getLogger(logger_name)
         logger_.setLevel(level)
         for handler in handlers:
@@ -80,7 +80,7 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
 
         set_logger(kwds.get('logger'), config['logging']['level'], config['logging']['format'], config['logging']['redacted_patterns'], config['logging']['redacted_substitute'])
 
-        drive = GoogleDrive(config['google_drive']['token'], config['google_drive']['scopes'], {})
+        drive = GoogleDrive(config['google_drive']['token'], config['google_drive']['scopes'])
         for poller in config['pollers']:
             dispatcher_list = []
             for dispatcher in poller.get('dispatchers', [{'class': 'DummyDispatcher'}]):
