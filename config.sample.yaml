@@ -2,6 +2,13 @@ x-discord: &DISCORD
   class: DiscordDispatcher
   webhook_id: 'xxxxxxxxxxxxxxxxxxx'
   webhook_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  colors:
+    # https://gist.github.com/thomasbnt/b6f455e2c7d743b796917fa3c205f812
+    default: '0'
+    move: '3447003'
+    create: '5763719'
+    delete: '15548997'
+    edit: '16776960'
 x-flaskfarm: &FLASKFARM
   url: 'http://flaskfarm:9999'
   apikey: 'xxxxxxxxxx'

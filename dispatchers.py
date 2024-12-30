@@ -103,22 +103,22 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
 
 class DiscordDispatcher(Dispatcher):
 
-    COLORS = {
-        'default': '0',
-        'move': '3447003',
-        'create': '5763719',
-        'delete': '15548997',
-        'edit': '16776960',
-    }
-
-    def __init__(self, url: str = 'https://discord.com/api', webhook_id: str = None, webhook_token: str = None, mappings: list = None) -> None:
+    def __init__(
+            self,
+            url: str = 'https://discord.com/api',
+            webhook_id: str = None,
+            webhook_token: str = None,
+            colors: dict = None,
+            mappings: list = None
+        ) -> None:
         super(DiscordDispatcher, self).__init__(mappings=mappings)
+        self.colors = colors or {'default': '0', 'move': '3447003', 'create': '5763719', 'delete': '15548997', 'edit': '16776960'}
         self.discord = Discord(url, webhook_id, webhook_token)
 
     def dispatch(self, data: dict) -> None:
         '''override'''
         embed = {
-            'color': self.COLORS.get(data['action'], self.COLORS['default']),
+            'color': self.colors.get(data['action'], self.colors['default']),
             'author': {
                 'name': data['poller'],
             },
