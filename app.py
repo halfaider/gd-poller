@@ -6,30 +6,32 @@ import pathlib
 import subprocess
 import asyncio
 
+ARGS = ('-m', 'pip', 'install', '-U')
+
 try:
     __import__('requests')
 except:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', 'requests'])
+    subprocess.check_call([sys.executable, *ARGS, 'requests'])
 
 try:
     __import__('yaml')
 except:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pyyaml'])
+    subprocess.check_call([sys.executable, *ARGS, 'pyyaml'])
 
 try:
     __import__('googleapiclient')
 except:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'google-api-python-client'])
+    subprocess.check_call([sys.executable, *ARGS, 'google-api-python-client'])
 
 try:
     __import__('google.oauth2')
 except:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'google-auth'])
+    subprocess.check_call([sys.executable, *ARGS, 'google-auth'])
 
 try:
     __import__('httplib2')
 except:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'httplib2'])
+    subprocess.check_call([sys.executable, *ARGS, 'httplib2'])
 
 import yaml
 

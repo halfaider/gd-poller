@@ -49,10 +49,10 @@ class FolderBuffer:
         parent = target.as_posix() if is_directory else target.parent.as_posix()
         if parent in self.buffer:
             children: set[str] = self.buffer[parent]['children']
-            children.add(target.as_posix())
+            children.add(target.name)
         else:
             self.buffer[parent] = {
-                'children': set([target.as_posix()]),
+                'children': set([target.name]),
                 'should_refresh': should_refresh,
                 'should_scan': should_scan,
             }

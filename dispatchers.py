@@ -138,7 +138,7 @@ class DiscordDispatcher(Dispatcher):
         result = self.discord.api_webhook(embeds=[embed])
         if result.get('status_code', 0) == 204:
             result.pop('exception', None)
-        logger.debug(f"Discord target=\"{data['target'][0]}\" result=\"{result}\"")
+        logger.debug(f"Discord target=\"{data['target'][0]}\" result={result}")
 
 
 class RcloneDispatcher(Dispatcher):
