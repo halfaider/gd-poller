@@ -56,9 +56,8 @@ class KavitaDispatcher(Dispatcher):
         kavita_path = self.get_mapping_path(data['path'])
         if not data.get('is_folder'):
             kavita_path = pathlib.Path(kavita_path).parent.as_posix()
-        logger.debug(f'Kavita scan: {kavita_path}')
+        logger.debug(f'Kavita: scan_target="{kavita_path}"')
         result = self.kavita.api_library_scan_folder(kavita_path)
-        logger.debug(f'Kavita result: {result}')
 
 
 class FlaskfarmDispatcher(Dispatcher):
@@ -98,7 +97,7 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
         if data.get('removed_path'):
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
             removed_path = self.get_mapping_path(data['removed_path'])
-            logger.info(f"Plexmate: {self.flaskfarm.api_plex_mate_scan_do_scan(removed_path, mode=mode)}")
+            logger.info(f"plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(removed_path, mode=mode)}")
 
 
 class DiscordDispatcher(Dispatcher):
@@ -138,7 +137,7 @@ class DiscordDispatcher(Dispatcher):
         result = self.discord.api_webhook(embeds=[embed])
         if result.get('status_code', 0) == 204:
             result.pop('exception', None)
-        logger.debug(f"Discord target=\"{data['target'][0]}\" result={result}")
+        logger.debug(f"Discord: target=\"{data['target'][0]}\" result={result}")
 
 
 class RcloneDispatcher(Dispatcher):
@@ -184,13 +183,9 @@ class RclonePlexDispatcher(RcloneDispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
-        if data.get('action', '') == 'delete':
-            self.rclone.api_vfs_forget(data['path'], data['is_folder'])
-            return
-        self.folder_buffer.put(data['path'], is_directory=data['is_folder'])
+        self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
         if data.get('removed_path'):
-            self.rclone.api_vfs_forget(data['removed_path'], data['is_folder'])
-            self.folder_buffer.put(data['removed_path'], data['is_folder'], should_refresh=False)
+            self.folder_buffer.put(data['removed_path'], 'delete', data['is_folder'])
 
     async def on_start(self) -> None:
         '''override'''
@@ -199,12 +194,15 @@ class RclonePlexDispatcher(RcloneDispatcher):
             while len(self.folder_buffer) > 0:
                 item: tuple[str, dict] = self.folder_buffer.pop()
                 logger.debug(item)
-                if item[1]['should_refresh']:
-                    remote_path = self.get_mapping_path(item[0])
-                    self.rclone.refresh(remote_path)
-                if item[1]['should_scan']:
-                    plex_path = map_path(item[0], self.plex_mappings) if self.plex_mappings else item[0]
-                    self.plex.scan(plex_path)
+                action, _, parent = item[0].partition('|')
+                match action:
+                    case 'delete':
+                        self.rclone.api_vfs_forget(parent, True)
+                    case _:
+                        remote_path = self.get_mapping_path(parent)
+                        self.rclone.refresh(remote_path)
+                plex_path = map_path(parent, self.plex_mappings) if self.plex_mappings else parent
+                self.plex.scan(plex_path)
             for _ in range(self.interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break

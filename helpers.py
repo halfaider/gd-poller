@@ -44,17 +44,16 @@ class FolderBuffer:
     def __init__(self) -> None:
         self.buffer = OrderedDict()
 
-    def put(self, path: str, is_directory: bool = False, should_refresh: bool = True, should_scan: bool = True) -> None:
+    def put(self, path: str, action: str = 'create', is_directory: bool = False) -> None:
         target = pathlib.Path(path)
         parent = target.as_posix() if is_directory else target.parent.as_posix()
-        if parent in self.buffer:
-            children: set[str] = self.buffer[parent]['children']
+        key = f'{action}|{parent}'
+        if key in self.buffer:
+            children: set[str] = self.buffer[key]['children']
             children.add(target.name)
         else:
-            self.buffer[parent] = {
+            self.buffer[key] = {
                 'children': set([target.name]),
-                'should_refresh': should_refresh,
-                'should_scan': should_scan,
             }
 
     def pop(self) -> tuple[str, dict]:
