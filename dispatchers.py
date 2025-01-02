@@ -197,7 +197,8 @@ class RclonePlexDispatcher(RcloneDispatcher):
                 action, _, parent = item[0].partition('|')
                 match action:
                     case 'delete':
-                        self.rclone.api_vfs_forget(parent, True)
+                        result = self.rclone.api_vfs_forget(parent, True)
+                        logger.debug(f'Rclone: {result}')
                     case _:
                         remote_path = self.get_mapping_path(parent)
                         self.rclone.refresh(remote_path)
