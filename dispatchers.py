@@ -152,7 +152,7 @@ class RcloneDispatcher(Dispatcher):
             self.rclone.api_vfs_forget(data['path'], data['is_folder'])
             return
         remote_path = self.get_mapping_path(data['path'])
-        self.rclone.refresh(remote_path, is_directory=data['is_folder'])
+        self.rclone.refresh(remote_path)
         if data.get('removed_path'):
             self.rclone.api_vfs_forget(data['removed_path'], data['is_folder'])
 

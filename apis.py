@@ -275,14 +275,14 @@ class Rclone(Api):
         }
 
     def get_metadata_cache(self) -> tuple[int, int]:
-        result = self.api_vfs_stats(self.vfs).get("metadataCache", {})
+        result: dict = self.api_vfs_stats(self.vfs).get("metadataCache", {})
         if not result:
             logger.error(f'Rclone: No metadata cache statistics, assumed 0...')
         return result.get('dirs', 0), result.get('files', 0)
 
     def is_file(self, remote_path: str) -> bool:
         result: dict = self.api_operations_stat(remote_path, self.vfs)
-        item = result.get('item', {})
+        item: dict = result.get('item', {})
         return item.get('IsDir', 'None').lower() == 'true'
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
@@ -292,7 +292,7 @@ class Rclone(Api):
         if result.get('result', {}).get(target.as_posix()) == 'OK':
             return
         for parent in target.parents:
-            result = self.api_vfs_refresh(parent.as_posix(), recursive)
+            result: dict[str, dict] = self.api_vfs_refresh(parent.as_posix(), recursive)
             logger.debug(f'Rclone: {result}')
             if result.get('result', {}).get(parent.as_posix()) == 'OK':
                 return
