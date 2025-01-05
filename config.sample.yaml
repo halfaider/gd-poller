@@ -154,7 +154,7 @@ pollers:
       - 'move'
       - 'delete'
     dispatchers:
-      - class: RclonePlexDispatcher
+      - class: PlexRcloneDispatcher
         rclone_url: 'http://user:pass@172.17.0.1:5574#gds2'
         rclone_mappings:
           - '/mnt/gds/GDRIVE:/GDRIVE'

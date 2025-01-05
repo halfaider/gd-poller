@@ -172,10 +172,10 @@ class PlexDispatcher(Dispatcher):
             self.plex.scan(plex_path, is_directory=data.get('is_folder'))
 
 
-class RclonePlexDispatcher(RcloneDispatcher):
+class PlexRcloneDispatcher(RcloneDispatcher):
 
     def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, interval: int = 30, plex_mappings: list = None) -> None:
-        super(RclonePlexDispatcher, self).__init__(url=url, mappings=mappings)
+        super(PlexRcloneDispatcher, self).__init__(url=url, mappings=mappings)
         self.plex = Plex(plex_url, plex_token)
         self.plex_mappings = parse_mappings(plex_mappings) if plex_mappings else None
         self.interval = interval
@@ -189,7 +189,7 @@ class RclonePlexDispatcher(RcloneDispatcher):
 
     async def on_start(self) -> None:
         '''override'''
-        logger.debug(f'RclonePlexDispatcher starts...')
+        logger.debug(f'PlexRcloneDispatcher starts...')
         while not self.stop_event.is_set():
             while len(self.folder_buffer) > 0:
                 item: tuple[str, dict] = self.folder_buffer.pop()
@@ -207,4 +207,4 @@ class RclonePlexDispatcher(RcloneDispatcher):
             for _ in range(self.interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
-        logger.debug(f'RclonePlexDispatcher ends...')
+        logger.debug(f'PlexRcloneDispatcher ends...')
