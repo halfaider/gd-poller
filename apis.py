@@ -235,10 +235,8 @@ class Rclone(Api):
     @Api.prepare_api
     def api_vfs_stats(self, fs: str = None) -> dict:
         data = {}
-        tmp = fs or self.vfs
-        if tmp:
-            data['data'] = {'fs': fs}
-        return data
+        data = self.set_vfs(fs, data)
+        return {'data': data}
 
     @Api.http_api('/vfs/refresh', method='JSON')
     @Api.prepare_api
@@ -247,9 +245,7 @@ class Rclone(Api):
             'dir': remote_path,
             'recursive': str(recursive).lower()
         }
-        fs_tmp = fs or self.vfs
-        if fs_tmp:
-            data['fs'] = fs_tmp
+        data = self.set_vfs(fs, data)
         return {'data': data}
 
     @Api.http_api('/operations/stat', method='JSON')
@@ -258,21 +254,25 @@ class Rclone(Api):
         data = {
             'remote': remote_path,
         }
-        fs_tmp = fs or self.vfs
-        if fs_tmp:
-            data['fs'] = fs_tmp
+        data = self.set_vfs(fs, data)
         if opts:
             data['opt'] = opts
         return {'data': data}
 
     @Api.http_api('/vfs/forget', method='JSON')
     @Api.prepare_api
-    def api_vfs_forget(self, local_path: str, is_directory: bool = False) -> dict:
-        return {
-            'data': {
-                'dir' if is_directory else 'file': local_path
-            }
+    def api_vfs_forget(self, local_path: str, is_directory: bool = False, fs: str = None) -> dict:
+        data = {
+            'dir' if is_directory else 'file': local_path
         }
+        data = self.set_vfs(fs, data)
+        return {'data': data}
+
+    def set_vfs(self, vfs: str, data: dict) -> dict:
+        fs = vfs or self.vfs
+        if fs:
+            data['fs'] = fs
+        return data
 
     def get_metadata_cache(self) -> tuple[int, int]:
         result: dict = self.api_vfs_stats(self.vfs).get("metadataCache", {})
