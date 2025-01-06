@@ -79,7 +79,9 @@ class Api:
 
                     test('group') -> '/path/group/users'
                 """
+                # return value of an wrapped method
                 api: dict = class_method(self, *args, **kwds) or {}
+                self.adjust_api(api)
                 bound = inspect.signature(class_method).bind(self, *args, **kwds)
                 api_path: str = path.format(**api.get('format', {}), **bound.arguments)
                 params: dict = api.get('params')
@@ -105,15 +107,7 @@ class Api:
             return wrapper
         return decorator
 
-    def prepare_api(class_method: callable) -> callable:
-        @functools.wraps(class_method)
-        def wrapper(self, *args: tuple, **kwds: dict) -> dict:
-            data = class_method(self, *args, **kwds) or {}
-            self.check_api(data)
-            return data
-        return wrapper
-
-    def check_api(self, api_data: dict) -> None:
+    def adjust_api(self, api_data: dict) -> None:
         pass
 
 
@@ -227,19 +221,17 @@ class Rclone(Api):
             logger.error(f'Rclone: {url=}')
             raise e
 
-    def check_api(self, api_data: dict) -> None:
+    def adjust_api(self, api_data: dict) -> None:
         '''override'''
         api_data['auth'] = (self.user, self.password) if self.user and self.password else None
 
     @Api.http_api('/vfs/stats', method='JSON')
-    @Api.prepare_api
     def api_vfs_stats(self, fs: str = None) -> dict:
         data = {}
         data = self.set_vfs(fs, data)
         return {'data': data}
 
     @Api.http_api('/vfs/refresh', method='JSON')
-    @Api.prepare_api
     def api_vfs_refresh(self, remote_path: str, recursive: bool = False, fs: str = None) -> dict:
         data = {
             'dir': remote_path,
@@ -249,7 +241,6 @@ class Rclone(Api):
         return {'data': data}
 
     @Api.http_api('/operations/stat', method='JSON')
-    @Api.prepare_api
     def api_operations_stat(self, remote_path: str, opts: Optional[dict] = None, fs: str = None) -> dict:
         data = {
             'remote': remote_path,
@@ -260,7 +251,6 @@ class Rclone(Api):
         return {'data': data}
 
     @Api.http_api('/vfs/forget', method='JSON')
-    @Api.prepare_api
     def api_vfs_forget(self, local_path: str, is_directory: bool = False, fs: str = None) -> dict:
         data = {
             'dir' if is_directory else 'file': local_path
@@ -307,7 +297,7 @@ class Plex(Api):
         super(Plex, self).__init__(url)
         self.token = token.strip()
 
-    def check_api(self, api_data: dict) -> None:
+    def adjust_api(self, api_data: dict) -> None:
         '''override'''
         if 'params' not in api_data:
             api_data['params'] = {}
@@ -315,7 +305,6 @@ class Plex(Api):
         api_data['headers'] = {'Accept': 'application/json'}
 
     @Api.http_api('/library/sections/{section}/refresh')
-    @Api.prepare_api
     def api_refresh(self, section: int, path: Optional[str] = None, force: bool = False) -> dict:
         params = {}
         if force:
@@ -325,7 +314,6 @@ class Plex(Api):
         return {'params': params}
 
     @Api.http_api('/library/sections')
-    @Api.prepare_api
     def api_sections(self) -> dict:
         pass
 
@@ -356,7 +344,7 @@ class Kavita(Api):
         self.apikey = apikey.strip()
         self.set_token()
 
-    def check_api(self, api_data: dict) -> None:
+    def adjust_api(self, api_data: dict) -> None:
         '''override'''
         headers = {
             'Content-Type': 'application/json',
@@ -367,12 +355,10 @@ class Kavita(Api):
         api_data['headers'] = headers
 
     @Api.http_api('/api/Plugin/authenticate')
-    @Api.prepare_api
     def api_plugin_authenticate(self) -> dict:
         return {'params': {'pluginName': 'GDPoller', 'apiKey': self.apikey}}
 
     @Api.http_api('/api/Library/scan-folder', method='JSON')
-    @Api.prepare_api
     def api_library_scan_folder(self, folder: str) -> dict:
         return {'data': {'folderPath': folder}}
 
@@ -392,7 +378,7 @@ class Discord(Api):
         self.webhook_id = webhook_id
         self.webhook_token = webhook_token
 
-    def check_api(self, api_data: dict) -> None:
+    def adjust_api(self, api_data: dict) -> None:
         '''override'''
         headers = {
             'Content-Type': 'application/json',
@@ -405,7 +391,6 @@ class Discord(Api):
         }
 
     @Api.http_api('/webhooks/{webhook_id}/{webhook_token}', method='JSON')
-    @Api.prepare_api
     def api_webhook(self, username: str = 'Activity Poller', content: str = None, embeds: list[dict] = None) -> dict:
         data = {
             'username': username
@@ -426,7 +411,6 @@ class Flaskfarm(Api):
         self.apikey = apikey.strip()
 
     @Api.http_api('/gds_tool/api/fp/broadcast')
-    @Api.prepare_api
     def api_gds_tool_fp_broadcast(self, gds_path: str, scan_mode: str) -> dict:
         if not gds_path.startswith('/ROOT/GDRIVE'):
             raise Exception(f'The path must start with "/ROOT/GDRIVE/": {gds_path}')
@@ -439,7 +423,6 @@ class Flaskfarm(Api):
         }
 
     @Api.http_api('/plex_mate/api/scan/do_scan', method='POST')
-    @Api.prepare_api
     def api_plex_mate_scan_do_scan(self, target: str, mode: str) -> dict:
         return {
             'data': {
