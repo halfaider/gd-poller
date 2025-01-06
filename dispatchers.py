@@ -103,6 +103,14 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
 
 class DiscordDispatcher(Dispatcher):
 
+    colors = {
+        'default': '0',
+        'move': '3447003',
+        'create': '5763719',
+        'delete': '15548997',
+        'edit': '16776960'
+    }
+
     def __init__(
             self,
             url: str = 'https://discord.com/api',
@@ -112,7 +120,9 @@ class DiscordDispatcher(Dispatcher):
             mappings: list = None
         ) -> None:
         super(DiscordDispatcher, self).__init__(mappings=mappings)
-        self.colors = colors or {'default': '0', 'move': '3447003', 'create': '5763719', 'delete': '15548997', 'edit': '16776960'}
+        if colors:
+            for action in colors:
+                self.colors[action] = colors[action]
         self.discord = Discord(url, webhook_id, webhook_token)
 
     def dispatch(self, data: dict) -> None:

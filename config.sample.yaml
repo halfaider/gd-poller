@@ -134,7 +134,7 @@ pollers:
         mappings:
           - '/GDRIVE:/mnt/gds2/GDRIVE'
 
-  - name: '일정 간격으로 activity를 수집 후 한번에 처리(부모 폴더를 새로고침 및 스캔)'
+  - name: 'interval 간격으로 activity를 수집 후 동일한 폴더는 한번에 처리(부모 폴더를 새로고침 및 스캔)'
     targets:
       - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/일본/가수'
       - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 가, 나, 다, 라, ..., 하
@@ -155,10 +155,12 @@ pollers:
       - 'delete'
     dispatchers:
       - class: PlexRcloneDispatcher
-        rclone_url: 'http://user:pass@172.17.0.1:5574#gds2'
-        rclone_mappings:
+        url: 'http://user:pass@172.17.0.1:5574#gds2'
+        mappings:
           - '/mnt/gds/GDRIVE:/GDRIVE'
-        plex_url: 'htto://plex:32400'
+        plex_url: 'http://plex:32400'
         plex_token: '{PLEX_TOKEN}'
+        plex_mappings:
+          - '/mnt/gds/GDRIVE:/plex/GDRIVE'
         interval: 60
       - <<: *DISCORD
