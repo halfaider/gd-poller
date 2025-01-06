@@ -81,6 +81,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
             case 'edit', _:
                 scan_mode = 'REFRESH'
         gds_path = self.get_mapping_path(data['path'])
+        logger.debug(f'gds_tool: mode={scan_mode} target="{gds_path}"')
         self.flaskfarm.api_gds_tool_fp_broadcast(gds_path, scan_mode)
 
 
