@@ -115,7 +115,7 @@ def parse_response(response: requests.Response) -> dict[str, Any]:
     try:
         result['json'] = response.json()
     except Exception as e:
-        logger.error(f'Failed to parse JSON: {response.text}')
+        logger.warning(f'Failed to parse JSON: {response.text[:min(len(response.text), 100)]}')
         result['exception'] = repr(e)
     return result
 
