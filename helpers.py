@@ -112,6 +112,7 @@ def parse_response(response: requests.Response) -> dict[str, Any]:
         'json': None,
         'url': response.url,
     }
+    logger.debug(f"response Content-Type: {response.headers['Content-Type']}")
     try:
         result['json'] = response.json()
     except Exception as e:
