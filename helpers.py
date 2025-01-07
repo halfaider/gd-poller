@@ -112,11 +112,9 @@ def parse_response(response: requests.Response) -> dict[str, Any]:
         'json': None,
         'url': response.url,
     }
-    logger.debug(f"response Content-Type: {response.headers['Content-Type']}")
     try:
         result['json'] = response.json()
     except Exception as e:
-        logger.warning(f'Failed to parse JSON: {response.text[:min(len(response.text), 100)]}')
         result['exception'] = repr(e)
     return result
 

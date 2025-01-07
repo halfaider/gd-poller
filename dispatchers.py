@@ -149,7 +149,7 @@ class DiscordDispatcher(Dispatcher):
         embed['fields'].append({'name': 'Link', 'value': data['url']})
         embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
         result = self.discord.api_webhook(embeds=[embed])
-        logger.info(f"Discord: target=\"{data['target'][0]}\" result={result}")
+        logger.info(f"Discord: target=\"{data['target'][0]}\" status_code={result.get('status_code', 0)}")
 
 
 class RcloneDispatcher(Dispatcher):
