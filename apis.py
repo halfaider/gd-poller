@@ -12,7 +12,7 @@ from google.oauth2 import credentials
 from googleapiclient.discovery import build, Resource
 from googleapiclient.http import HttpRequest
 
-from helpers import request, parse_json_response
+from helpers import request, parse_response
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,16 @@ class Api:
                     self.url_parts.query,
                     self.url_parts.fragment
                 ))
-                return parse_json_response(request(
+                '''
+                {
+                    'status_code': 200,
+                    'content': '...',
+                    'exception': None,
+                    'json': {...},
+                    'url': 'https://...',
+                }
+                '''
+                return parse_response(request(
                     method,
                     url,
                     params=params,
@@ -265,24 +274,24 @@ class Rclone(Api):
         return data
 
     def get_metadata_cache(self) -> tuple[int, int]:
-        result: dict = self.api_vfs_stats(self.vfs).get("metadataCache", {})
+        result: dict = self.api_vfs_stats(self.vfs).get('json', {}).get("metadataCache")
         if not result:
             logger.error(f'Rclone: No metadata cache statistics, assumed 0...')
         return result.get('dirs', 0), result.get('files', 0)
 
     def is_file(self, remote_path: str) -> bool:
-        result: dict = self.api_operations_stat(remote_path, self.vfs)
+        result: dict = self.api_operations_stat(remote_path, self.vfs).get('json', {})
         item: dict = result.get('item', {})
         return item.get('IsDir', 'None').lower() == 'true'
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
-        result = self.api_vfs_refresh(target.as_posix(), recursive)
+        result = self.api_vfs_refresh(target.as_posix(), recursive).get('json', {})
         logger.debug(f'Rclone: {result}')
         if result.get('result', {}).get(target.as_posix()) == 'OK':
             return
         for parent in target.parents:
-            result: dict[str, dict] = self.api_vfs_refresh(parent.as_posix(), recursive)
+            result: dict[str, dict] = self.api_vfs_refresh(parent.as_posix(), recursive).get('json', {})
             logger.debug(f'Rclone: {result}')
             if result.get('result', {}).get(parent.as_posix()) == 'OK':
                 return
@@ -319,7 +328,7 @@ class Plex(Api):
 
     def get_section_by_path(self, path: str) -> int:
         path_ = pathlib.Path(path)
-        sections = self.api_sections()
+        sections = self.api_sections().get('json', {})
         for directory in sections['MediaContainer']['Directory']:
             for location in directory['Location']:
                 if path_.is_relative_to(location['path']) or \
@@ -354,16 +363,19 @@ class Kavita(Api):
             headers['Authorization'] = f'Bearer {self.token}'
         api_data['headers'] = headers
 
-    @Api.http_api('/api/Plugin/authenticate')
+    @Api.http_api('/api/Plugin/authenticate', method='POST')
     def api_plugin_authenticate(self) -> dict:
         return {'params': {'pluginName': 'GDPoller', 'apiKey': self.apikey}}
 
     @Api.http_api('/api/Library/scan-folder', method='JSON')
     def api_library_scan_folder(self, folder: str) -> dict:
-        return {'data': {'folderPath': folder}}
+        return {'data': {'folderPath': folder, 'apiKey': self.apikey}}
 
     def set_token(self) -> None:
-        auth = self.api_plugin_authenticate()
+        result = self.api_plugin_authenticate()
+        if not 199 < result.get('status_code', 0) < 300:
+            logger.error(f'kavita: {result}')
+        auth = result.get('json', {})
         self.token = auth.get('token') or ''
         self.refresh_token = auth.get('refreshToken') or ''
 

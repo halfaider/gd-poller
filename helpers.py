@@ -104,15 +104,19 @@ async def request_async(method: str, url: str, data: Optional[dict] = None, time
         return response
 
 
-def parse_json_response(response: requests.Response) -> dict[str, Any]:
+def parse_response(response: requests.Response) -> dict[str, Any]:
+    result = {
+        'status_code': response.status_code,
+        'content': response.text.strip(),
+        'exception': None,
+        'json': None,
+        'url': response.url,
+    }
     try:
-        result = response.json()
+        result['json'] = response.json()
     except Exception as e:
-        result = {
-            'status_code': response.status_code,
-            'content': response.text.strip(),
-            'exception': repr(e),
-        }
+        logger.error(f'Failed to parse JSON: {response.text}')
+        result['exception'] = repr(e)
     return result
 
 

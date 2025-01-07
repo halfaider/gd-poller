@@ -56,8 +56,11 @@ class KavitaDispatcher(Dispatcher):
         kavita_path = self.get_mapping_path(data['path'])
         if not data.get('is_folder'):
             kavita_path = pathlib.Path(kavita_path).parent.as_posix()
-        logger.debug(f'Kavita: scan_target="{kavita_path}"')
+        logger.info(f'Kavita: scan_target="{kavita_path}"')
         result = self.kavita.api_library_scan_folder(kavita_path)
+        if result.get('status_code', 0) == 401:
+            self.kavita.set_token()
+            self.kavita.api_library_scan_folder(kavita_path)
 
 
 class FlaskfarmDispatcher(Dispatcher):
@@ -81,7 +84,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
             case 'edit', _:
                 scan_mode = 'REFRESH'
         gds_path = self.get_mapping_path(data['path'])
-        logger.debug(f'gds_tool: mode={scan_mode} target="{gds_path}"')
+        logger.info(f'gds_tool: mode={scan_mode} target="{gds_path}"')
         self.flaskfarm.api_gds_tool_fp_broadcast(gds_path, scan_mode)
 
 
@@ -94,11 +97,11 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
         else:
             mode = 'ADD'
-        logger.info(f'Plexmate: {self.flaskfarm.api_plex_mate_scan_do_scan(target_path, mode=mode)}')
+        logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(target_path, mode=mode)}')
         if data.get('removed_path'):
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
             removed_path = self.get_mapping_path(data['removed_path'])
-            logger.info(f"plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(removed_path, mode=mode)}")
+            logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(removed_path, mode=mode)}')
 
 
 class DiscordDispatcher(Dispatcher):
@@ -146,9 +149,7 @@ class DiscordDispatcher(Dispatcher):
         embed['fields'].append({'name': 'Link', 'value': data['url']})
         embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
         result = self.discord.api_webhook(embeds=[embed])
-        if result.get('status_code', 0) == 204:
-            result.pop('exception', None)
-        logger.debug(f"Discord: target=\"{data['target'][0]}\" result={result}")
+        logger.info(f"Discord: target=\"{data['target'][0]}\" result={result}")
 
 
 class RcloneDispatcher(Dispatcher):
@@ -208,8 +209,8 @@ class PlexRcloneDispatcher(RcloneDispatcher):
                 action, _, parent = item[0].partition('|')
                 match action:
                     case 'delete':
-                        result = self.rclone.api_vfs_forget(parent, True)
-                        logger.debug(f'Rclone: {result}')
+                        result = self.rclone.api_vfs_forget(parent, True).get('json', {})
+                        logger.info(f'Rclone: {result}')
                     case _:
                         remote_path = self.get_mapping_path(parent)
                         self.rclone.refresh(remote_path)
@@ -218,4 +219,3 @@ class PlexRcloneDispatcher(RcloneDispatcher):
             for _ in range(self.interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
-        logger.debug(f'PlexRcloneDispatcher ends...')
