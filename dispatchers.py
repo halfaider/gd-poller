@@ -56,11 +56,12 @@ class KavitaDispatcher(Dispatcher):
         kavita_path = self.get_mapping_path(data['path'])
         if not data.get('is_folder'):
             kavita_path = pathlib.Path(kavita_path).parent.as_posix()
-        logger.info(f'Kavita: scan_target="{kavita_path}"')
         result = self.kavita.api_library_scan_folder(kavita_path)
+        logger.info(f'Kavita: scan_target="{kavita_path}" status_code={result.get("status_code", 0)}')
         if result.get('status_code', 0) == 401:
             self.kavita.set_token()
-            self.kavita.api_library_scan_folder(kavita_path)
+            result = self.kavita.api_library_scan_folder(kavita_path)
+            logger.info(f'Kavita: scan_target="{kavita_path}" status_code={result.get("status_code", 0)}')
 
 
 class FlaskfarmDispatcher(Dispatcher):
