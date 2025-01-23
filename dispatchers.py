@@ -76,7 +76,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
     def dispatch(self, data: dict) -> None:
         '''override'''
         match (data.get('action'), data.get('is_folder')):
-            case 'create' | 'move', _:
+            case 'create' | 'move' | 'move' | 'rename', _:
                 scan_mode = 'ADD'
             case 'delete', True:
                 scan_mode = 'REMOVE_FOLDER'
@@ -84,9 +84,18 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
                 scan_mode = 'REMOVE_FILE'
             case 'edit', _:
                 scan_mode = 'REFRESH'
+            case _, _:
+                scan_mode = None
+        if not scan_mode:
+            logger.warning(f'No applicable action: {data["action"]}')
+            return
         gds_path = self.get_mapping_path(data['path'])
         logger.info(f'gds_tool: mode={scan_mode} target="{gds_path}"')
         self.flaskfarm.api_gds_tool_fp_broadcast(gds_path, scan_mode)
+        if data.get('removed_path'):
+            removed_scan_mode = 'REMOVE_FOLDER' if data.get('is_folder') else 'REMOVE_FILE'
+            removed_gds_path = self.get_mapping_path(data['removed_path'])
+            self.flaskfarm.api_gds_tool_fp_broadcast(removed_gds_path, removed_scan_mode)
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):

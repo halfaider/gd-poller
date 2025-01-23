@@ -328,7 +328,11 @@ class Plex(Api):
 
     def get_section_by_path(self, path: str) -> int:
         path_ = pathlib.Path(path)
-        sections = self.api_sections().get('json', {})
+        result = self.api_sections()
+        sections = result.get('json')
+        if not sections:
+            logger.error(f'No section information, status_code={result.get("status_code", 0)}')
+            return -1
         for directory in sections['MediaContainer']['Directory']:
             for location in directory['Location']:
                 if path_.is_relative_to(location['path']) or \

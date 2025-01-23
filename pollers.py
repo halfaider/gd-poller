@@ -246,7 +246,7 @@ class ActivityPoller(GoogleDrivePoller):
                     if self.check_patterns(data['path'], self.ignore_patterns):
                         logger.debug(f'Skip: target={data["target"]} reason="Match with ignore patterns"')
                         continue
-                    # move일 경우 소스 경로
+                    # move, rename일 경우 소스 경로
                     data['removed_path'] = None
                     if data['action'] == 'move' and data['action_detail']:
                         logger.debug(f'Moved from: {data["action_detail"]}')
@@ -254,8 +254,18 @@ class ActivityPoller(GoogleDrivePoller):
                             removed_parent_id = data['action_detail'][1].partition('/')[-1]
                             removed_path, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
                             data['removed_path'] = pathlib.Path(removed_path, data['target'][0]).as_posix()
-                        except Exception as e:
+                        except:
                             logger.error(traceback.format_exc())
+                    elif data['action'] == 'rename' and data['action_detail']:
+                        logger.debug(f'Renamed from: {data["action_detail"]}')
+                        data['removed_path'] = pathlib.Path(data['path']).with_name(data['action_detail'])
+                    # removed_path 패턴 체크
+                    if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
+                        logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Not match with patterns"')
+                        data['removed_path'] = None
+                    if data['removed_path'] and not self.check_patterns(data['removed_path'], self.ignore_patterns):
+                        logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
+                        data['removed_path'] = None
                     # 기타 정보
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
                     data['poller'] = self.name
