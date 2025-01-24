@@ -53,15 +53,21 @@ class KavitaDispatcher(Dispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
-        kavita_path = self.get_mapping_path(data['path'])
-        if not data.get('is_folder'):
-            kavita_path = pathlib.Path(kavita_path).parent.as_posix()
-        result = self.kavita.api_library_scan_folder(kavita_path)
-        logger.info(f'Kavita: scan_target="{kavita_path}" status_code={result.get("status_code", 0)}')
-        if result.get('status_code', 0) == 401:
-            self.kavita.set_token()
-            result = self.kavita.api_library_scan_folder(kavita_path)
-            logger.info(f'Kavita: scan_target="{kavita_path}" status_code={result.get("status_code", 0)}')
+        parents = set()
+        target_path = pathlib.Path(self.get_mapping_path(data['path']))
+        target_path = target_path.as_posix() if data.get('is_folder') else target_path.parent.as_posix()
+        parents.add(target_path)
+        if data.get('removed_path'):
+            removed_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
+            removed_path = removed_path.as_posix() if data.get('is_folder') else removed_path.parent.as_posix()
+            parents.add(removed_path)
+        for p_ in parents:
+            result = self.kavita.api_library_scan_folder(p_)
+            logger.info(f'Kavita: scan_target="{p_}" status_code={result.get("status_code", 0)}')
+            if result.get('status_code', 0) == 401:
+                self.kavita.set_token()
+                result = self.kavita.api_library_scan_folder(p_)
+                logger.info(f'Kavita: scan_target="{p_}" status_code={result.get("status_code", 0)}')
 
 
 class FlaskfarmDispatcher(Dispatcher):
@@ -187,11 +193,16 @@ class PlexDispatcher(Dispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
-        plex_path = self.get_mapping_path(data['path'])
-        self.plex.scan(plex_path, is_directory=data['is_folder'])
+        parents = set()
+        target_path = pathlib.Path(self.get_mapping_path(data['path']))
+        target_path = target_path.as_posix() if data['is_folder'] else target_path.parent.as_posix()
+        parents.add(target_path)
         if data.get('removed_path'):
-            plex_path = self.get_mapping_path(data['removed_path'])
-            self.plex.scan(plex_path, is_directory=data.get('is_folder'))
+            removed_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
+            removed_path = removed_path.as_posix() if data['is_folder'] else removed_path.parent.as_posix()
+            parents.add(removed_path)
+        for p_ in parents:
+            self.plex.scan(p_, is_directory=True)
 
 
 class PlexRcloneDispatcher(RcloneDispatcher):
