@@ -120,7 +120,11 @@ def parse_response(response: requests.Response) -> dict[str, Any]:
 
 
 def parse_mappings(mappings: Iterable[str]) -> list[tuple[str]]:
-    return [tuple(mapping.split(':')) for mapping in mappings]
+    mapped = []
+    for mapping in mappings:
+        source, _, target = mapping.partition(':')
+        mapped.append((source, target))
+    return mapped
 
 
 def map_path(target: str, mappings: Iterable[Iterable[str]]) -> str:
