@@ -4,6 +4,7 @@ import datetime
 import logging
 import pathlib
 import asyncio
+import subprocess
 
 import yaml
 
@@ -11,6 +12,34 @@ import dispatchers
 from apis import GoogleDrive
 from pollers import ActivityPoller
 from helpers import RedactedFormatter, stop_event_loop
+
+ARGS = ('-m', 'pip', 'install', '-U')
+
+try:
+    __import__('requests')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'requests'])
+
+try:
+    __import__('yaml')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'pyyaml'])
+
+try:
+    __import__('googleapiclient')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'google-api-python-client'])
+
+try:
+    __import__('google.oauth2')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'google-auth'])
+
+try:
+    __import__('httplib2')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'httplib2'])
+
 
 logger = logging.getLogger(__name__)
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
