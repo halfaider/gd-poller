@@ -1,3 +1,5 @@
+import sys
+import subprocess
 import traceback
 import logging
 import re
@@ -7,6 +9,13 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
 from collections import OrderedDict
+
+ARGS = ('-m', 'pip', 'install', '-U')
+
+try:
+    __import__('requests')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'requests'])
 
 import requests
 

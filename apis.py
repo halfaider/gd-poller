@@ -1,3 +1,5 @@
+import sys
+import subprocess
 import pathlib
 import logging
 import traceback
@@ -5,6 +7,23 @@ import urllib.parse
 import functools
 import inspect
 from typing import Optional
+
+ARGS = ('-m', 'pip', 'install', '-U')
+
+try:
+    __import__('httplib2')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'httplib2'])
+
+try:
+    __import__('googleapiclient')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'google-api-python-client'])
+
+try:
+    __import__('google.oauth2')
+except:
+    subprocess.check_call([sys.executable, *ARGS, 'google-auth'])
 
 from httplib2 import Http
 from google_auth_httplib2 import AuthorizedHttp
