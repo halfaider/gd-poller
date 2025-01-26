@@ -55,11 +55,11 @@ class KavitaDispatcher(Dispatcher):
         '''override'''
         parents = set()
         target_path = pathlib.Path(self.get_mapping_path(data['path']))
-        target_path = target_path.as_posix() if data.get('is_folder') else target_path.parent.as_posix()
+        target_path = str(target_path) if data.get('is_folder') else str(target_path.parent)
         parents.add(target_path)
         if data.get('removed_path'):
             removed_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
-            removed_path = removed_path.as_posix() if data.get('is_folder') else removed_path.parent.as_posix()
+            removed_path = str(removed_path) if data.get('is_folder') else str(removed_path.parent)
             parents.add(removed_path)
         for p_ in parents:
             result = self.kavita.api_library_scan_folder(p_)
@@ -195,11 +195,11 @@ class PlexDispatcher(Dispatcher):
         '''override'''
         parents = set()
         target_path = pathlib.Path(self.get_mapping_path(data['path']))
-        target_path = target_path.as_posix() if data['is_folder'] else target_path.parent.as_posix()
+        target_path = str(target_path) if data['is_folder'] else str(target_path.parent)
         parents.add(target_path)
         if data.get('removed_path'):
             removed_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
-            removed_path = removed_path.as_posix() if data['is_folder'] else removed_path.parent.as_posix()
+            removed_path = str(removed_path) if data['is_folder'] else str(removed_path.parent)
             parents.add(removed_path)
         for p_ in parents:
             self.plex.scan(p_, is_directory=True)

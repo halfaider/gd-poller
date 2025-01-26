@@ -182,7 +182,7 @@ class GoogleDrive(Api):
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
         full_path = pathlib.Path(*[p[0] for p in current_path[::-1] if p[0]])
         parent = current_path[1] if len(current_path) > 1 else current_path[0]
-        return full_path.as_posix(), parent
+        return str(full_path), parent
 
     def get_file(self, item_id: str, fields: str = '*') -> dict:
         try:
@@ -340,7 +340,7 @@ class Plex(Api):
                     return int(directory['key'])
 
     def scan(self, path: str, force: bool = False, is_directory: bool = True) -> None:
-        scan_target = path if is_directory else pathlib.Path(path).parent.as_posix()
+        scan_target = path if is_directory else str(pathlib.Path(path).parent)
         section = self.get_section_by_path(scan_target) or -1
         logger.debug(f'Plex: {scan_target=} {section=}')
         self.api_refresh(section, scan_target, force)

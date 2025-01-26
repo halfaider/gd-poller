@@ -4,6 +4,7 @@ import logging
 import traceback
 import datetime
 import asyncio
+import re
 from typing import Any, Iterable
 
 import dispatchers
@@ -181,10 +182,15 @@ class GoogleDrivePoller:
         self._tasks = None
 
     def check_patterns(self, path: str, patterns: list) -> bool:
-        test = pathlib.Path(path)
         for pattern in patterns:
-            if test.match(pattern):
-                return True
+            if not pattern:
+                continue
+            try:
+                match = re.compile(pattern).search(path)
+                if match:
+                    return True
+            except:
+                continue
         return False
 
     async def poll(self, target: Any) -> None:
@@ -253,12 +259,12 @@ class ActivityPoller(GoogleDrivePoller):
                         try:
                             removed_parent_id = data['action_detail'][1].partition('/')[-1]
                             removed_path, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
-                            data['removed_path'] = pathlib.Path(removed_path, data['target'][0]).as_posix()
+                            data['removed_path'] = str(pathlib.Path(removed_path, data['target'][0]))
                         except:
                             logger.error(traceback.format_exc())
                     elif data['action'] == 'rename' and data['action_detail']:
                         logger.debug(f'Renamed from: {data["action_detail"]}')
-                        data['removed_path'] = pathlib.Path(data['path']).with_name(data['action_detail'])
+                        data['removed_path'] = str(pathlib.Path(data['path']).with_name(data['action_detail']))
                     # removed_path 패턴 체크
                     if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
                         logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Not match with patterns"')

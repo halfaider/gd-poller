@@ -6,13 +6,6 @@ import pathlib
 import asyncio
 import subprocess
 
-import yaml
-
-import dispatchers
-from apis import GoogleDrive
-from pollers import ActivityPoller
-from helpers import RedactedFormatter, stop_event_loop
-
 ARGS = ('-m', 'pip', 'install', '-U')
 
 try:
@@ -39,6 +32,13 @@ try:
     __import__('httplib2')
 except:
     subprocess.check_call([sys.executable, *ARGS, 'httplib2'])
+
+import yaml
+
+import dispatchers
+from apis import GoogleDrive
+from pollers import ActivityPoller
+from helpers import RedactedFormatter, stop_event_loop
 
 
 logger = logging.getLogger(__name__)

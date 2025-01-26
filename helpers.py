@@ -46,7 +46,7 @@ class FolderBuffer:
 
     def put(self, path: str, action: str = 'create', is_directory: bool = False) -> None:
         target = pathlib.Path(path)
-        parent = target.as_posix() if is_directory else target.parent.as_posix()
+        parent = str(target) if is_directory else str(target.parent)
         key = f'{action}|{parent}'
         if key in self.buffer:
             children: set[str] = self.buffer[key]['children']
@@ -144,4 +144,4 @@ async def await_sync(func: callable, *args, **kwds) -> Any:
 
 
 def get_last_dir(path_: str, is_dir: bool = False) -> str:
-    return path_ if is_dir else pathlib.Path(path_).parent.as_posix()
+    return path_ if is_dir else str(pathlib.Path(path_).parent)
