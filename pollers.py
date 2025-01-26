@@ -269,7 +269,7 @@ class ActivityPoller(GoogleDrivePoller):
                     if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
                         logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Not match with patterns"')
                         data['removed_path'] = None
-                    if data['removed_path'] and not self.check_patterns(data['removed_path'], self.ignore_patterns):
+                    if data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
                         logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
                         data['removed_path'] = None
                     # 기타 정보
