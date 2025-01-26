@@ -116,7 +116,7 @@ class GoogleDrivePoller:
 
     @patterns.setter
     def patterns(self, patterns: list) -> None:
-        self._patterns = list(patterns) if patterns else ['*']
+        self._patterns = list(patterns) if patterns else ['.*']
 
     @property
     def ignore_patterns(self) -> list:
