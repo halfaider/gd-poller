@@ -186,7 +186,7 @@ class GoogleDrivePoller:
             if not pattern:
                 continue
             try:
-                match = re.compile(pattern).search(path)
+                match = re.compile(pattern, re.I).search(path)
                 if match:
                     return True
             except:

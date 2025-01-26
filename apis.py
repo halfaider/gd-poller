@@ -326,6 +326,10 @@ class Plex(Api):
     def api_sections(self) -> dict:
         pass
 
+    @Api.http_api('/library/metadata/{metadata_id}/refresh')
+    def api_metadata_refresh(self, metadata_id: int) -> dict:
+        pass
+
     def get_section_by_path(self, path: str) -> int:
         path_ = pathlib.Path(path)
         result = self.api_sections()

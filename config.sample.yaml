@@ -68,7 +68,7 @@ pollers:
     polling_interval: 120
     page_size: 30
     ignore_folder: true
-    patterns: [*]
+    patterns: [.*]
     targets:
       - '{폴더ID}#/mnt/gds2/GDRIVE/READING/만화'
     actions:
@@ -100,15 +100,15 @@ pollers:
         mappings:
           - '/mnt/gds/GDRIVE:/ROOT/GDRIVE'
     ignore_patterns:
-      - '*.json'
-      - '*.yml'
-      - '*.yaml'
-      - '*.smi'
-      - '*.srt'
-      - '*.txt'
-      - '*.ass'
-      - '*/.git/*'
-      - '*.log.*'
+      - '\.json$'
+      - '\.yml$'
+      - '\.yaml$'
+      - '\.smi$'
+      - '\.srt$'
+      - '\.txt$'
+      - '\.ass$'
+      - '\.git/?'
+      - '(\.log$|\.log\.)'
 
   - name: '플렉스 스캔용'
     targets:
@@ -118,14 +118,14 @@ pollers:
       - 'move'
       - 'delete'
     patterns:
-      - '*.mkv'
-      - '*.mp4'
-      - '*.avi'
-      - '*.mov'
-      - '*.divx'
-      - '*.smi'
-      - '*.srt'
-      - '*.ass'
+      - '\.mkv$'
+      - '\.mp4$'
+      - '\.avi$'
+      - '\.mov$'
+      - '\.divx$'
+      - '\.smi$'
+      - '\.srt$'
+      - '\.ass$'
     dispatchers:
       - class: RcloneDispatcher
         <<: *RCLONE
