@@ -108,16 +108,26 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
 
     def dispatch(self, data: dict) -> None:
         '''override'''
+        scan_targets = []
         target_path = self.get_mapping_path(data['path'])
-        if data['action'] == 'delete':
-            mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
+        tp = pathlib.Path(target_path)
+        if tp.suffix.lower() in ['.json', '.yaml', '.yml']:
+            if data['action'] == 'edit':
+                mode = 'REFRESH'
+            else:
+                return
         else:
-            mode = 'ADD'
-        logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(target_path, mode=mode)}')
+            if data['action'] == 'delete':
+                mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
+            else:
+                mode = 'ADD'
+        scan_targets.append((target_path, mode))
         if data.get('removed_path'):
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
             removed_path = self.get_mapping_path(data['removed_path'])
-            logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(removed_path, mode=mode)}')
+            scan_targets.append((removed_path, mode))
+        for st in scan_targets:
+            logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(st[0], mode=st[1])}')
 
 
 class DiscordDispatcher(Dispatcher):
