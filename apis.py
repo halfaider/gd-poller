@@ -181,6 +181,7 @@ class GoogleDrive(Api):
         new_http = AuthorizedHttp(self.credentials, http=Http())
         return HttpRequest(new_http, *args, **kwargs)
 
+    @functools.lru_cache(maxsize=32)
     def get_full_path(self, item_id: str, ancestor: str = '') -> tuple:
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')

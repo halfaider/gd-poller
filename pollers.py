@@ -5,6 +5,7 @@ import traceback
 import datetime
 import asyncio
 import re
+import html
 from typing import Any, Iterable
 
 import dispatchers
@@ -236,6 +237,7 @@ class ActivityPoller(GoogleDrivePoller):
                     # 대상 경로
                     target_id = data['target'][1].partition('/')[-1]
                     data['path'], parent = self.drive.get_full_path(target_id, data.get('ancestor'))
+                    logger.debug(self.drive.get_full_path.cache_info())
                     if not parent[0]:
                         logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} parent={parent[0]}")
                         data['path'] = f"/unknown/{data['target'][0]}"
@@ -259,6 +261,7 @@ class ActivityPoller(GoogleDrivePoller):
                         try:
                             removed_parent_id = data['action_detail'][1].partition('/')[-1]
                             removed_path, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                            logger.debug(self.drive.get_full_path.cache_info())
                             data['removed_path'] = str(pathlib.Path(removed_path, data['target'][0]))
                         except:
                             logger.error(traceback.format_exc())
@@ -310,8 +313,8 @@ class ActivityPoller(GoogleDrivePoller):
                     try:
                         results = await await_sync(query.execute)
                     except Exception as e:
-                        logger.error(traceback.format_exc())
                         logger.error(f'Polling failed: {ancestor=}')
+                        logger.error(html.escape(traceback.format_exc()))
                         break
                     if results.get('nextPageToken'):
                         next_page_token = results.get('nextPageToken')
