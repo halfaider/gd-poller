@@ -236,16 +236,19 @@ class ActivityPoller(GoogleDrivePoller):
                         continue
                     # 대상 경로
                     target_id = data['target'][1].partition('/')[-1]
-                    data['path'], parent = self.drive.get_full_path(target_id, data.get('ancestor'))
+                    data['path'], parent, web_view = self.drive.get_full_path(target_id, data.get('ancestor'))
                     if not parent[0]:
                         logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} parent={parent[0]}")
                         data['path'] = f"/unknown/{data['target'][0]}"
                     # url 링크
-                    if data['is_folder']:
-                        url_folder_id = target_id
+                    if web_view:
+                        data['link'] = web_view.strip()
                     else:
-                        url_folder_id = parent[1]
-                    data['url'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
+                        if data['is_folder']:
+                            url_folder_id = target_id
+                        else:
+                            url_folder_id = parent[1]
+                        data['link'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
                     # 패턴 체크
                     if not self.check_patterns(data['path'], self.patterns):
                         logger.debug(f'Skip: target={data["target"]} reason="Not match with patterns"')
@@ -259,7 +262,7 @@ class ActivityPoller(GoogleDrivePoller):
                         logger.debug(f'Moved from: {data["action_detail"]}')
                         try:
                             removed_parent_id = data['action_detail'][1].partition('/')[-1]
-                            removed_path, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                            removed_path, _, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
                             data['removed_path'] = str(pathlib.Path(removed_path, data['target'][0]))
                         except:
                             logger.error(traceback.format_exc())

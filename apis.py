@@ -181,37 +181,41 @@ class GoogleDrive(Api):
         new_http = AuthorizedHttp(self.credentials, http=Http())
         return HttpRequest(new_http, *args, **kwargs)
 
-    def get_full_path(self, item_id: str, ancestor: str = '') -> tuple:
+    def get_full_path(self, item_id: str, ancestor: str = '') -> tuple[str, tuple[str, str], str]:
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
         ancestor_id, _, root = ancestor.partition('#')
         file = self.get_file(item_id)
+        web_view = file.get('webViewLink')
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
         else:
             current_path = [(file['name'], file['id'])]
-            while file.get('parents'):
+            break_conuter = 100
+            while file.get('parents') and break_conuter > 0:
                 file = self.get_file(file.get('parents')[0])
                 if root and file['id'] == ancestor_id:
                     current_path.append((root, ancestor_id))
                     break
                 else:
                     current_path.append((file['name'], file['id']))
+                break_conuter -= 1
         if len(current_path[-1][1]) < 20:
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
         full_path = pathlib.Path(*[p[0] for p in current_path[::-1] if p[0]])
         parent = current_path[1] if len(current_path) > 1 else current_path[0]
         logger.debug(self.get_file.cache_info())
-        return str(full_path), parent
+        return str(full_path), parent, web_view
 
     @functools.lru_cache(maxsize=64)
-    def get_file(self, item_id: str, fields: str = '*') -> dict:
+    def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink') -> dict:
         try:
             result = self.api_drive.files().get(
                 fileId=item_id,
                 fields=fields,
                 supportsAllDrives=True,
             ).execute()
+            logger.debug(f'file={result}')
         except:
             logger.error(traceback.format_exc())
             result = {'id': item_id, 'name': None}

@@ -172,7 +172,7 @@ class DiscordDispatcher(Dispatcher):
             embed['fields'].append({'name': 'Details', 'value': data["action_detail"]})
         embed['fields'].append({'name': 'ID', 'value': data['target'][1]})
         embed['fields'].append({'name': 'MIME', 'value': data['target'][2]})
-        embed['fields'].append({'name': 'Link', 'value': data['url']})
+        embed['fields'].append({'name': 'Link', 'value': data['link']})
         embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
         result = self.discord.api_webhook(embeds=[embed])
         logger.info(f"Discord: target=\"{data['target'][0]}\" status_code={result.get('status_code', 0)}")
