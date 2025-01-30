@@ -32,6 +32,20 @@ class Dispatcher:
         pass
 
     def dispatch(self, data: dict) -> None:
+        '''
+        data = {
+            'ancestor': str,
+            'action': str,
+            'action_detail': str | tuple | list | None,
+            'target': tuple[str, str, str],
+            'is_folder': bool,
+            'path': str,
+            'removed_path': str | None,
+            'link': str,
+            'timestamp': str,
+            'poller': str,
+        }
+        '''
         raise Exception('이 메소드를 구현하세요.')
 
     def get_mapping_path(self, target_path: str) -> str:
@@ -168,7 +182,7 @@ class DiscordDispatcher(Dispatcher):
         embed['fields'].append({'name': 'Path', 'value': data['path']})
         if data['action'] == 'move':
             embed['fields'].append({'name': 'From', 'value': data['removed_path'] if data['removed_path'] else f'unknown'})
-        elif data.get('action_detail'):
+        elif data.get('action_detail') and type(data.get('action_detail')) in (str, int):
             embed['fields'].append({'name': 'Details', 'value': data["action_detail"]})
         embed['fields'].append({'name': 'ID', 'value': data['target'][1]})
         embed['fields'].append({'name': 'MIME', 'value': data['target'][2]})

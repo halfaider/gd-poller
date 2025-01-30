@@ -46,59 +46,61 @@ class Api:
         self.url_parts = urllib.parse.urlparse(self.url)
 
     def http_api(path: str, method: str = 'GET') -> callable:
+        """
+        api에 추가적인 데이터가 필요한 경우 딕셔너리 형태로 리턴
+
+            @Api.http_api('/path/{sub_path}/{extra_path}', method='POST')
+            def test(self, sub_path: str, param1: str, param2: int, data1: str, data2: str) -> dict:
+                return {
+                    'params': {
+                        'a': param1,
+                        'b': parma2,
+                    },
+                    'data': {
+                        'c': data1,
+                        'd': data2,
+                    },
+                    'headers': {
+                        'Accept': 'application/json'
+                    },
+                    'auth: ('user', 'password'),
+                    'format': {
+                        'extra_path': 'additonal_path',
+                    }
+                }
+
+        params, data, headers는 requests 모듈의 request(parmas=params, data=data, headers=headers)로 전달 됨.
+        (method='json'일 경우 request(json=data)로 전달)
+
+        api에 추가적인 데이터가 필요하지 않은 경우 리턴하지 않음
+
+            @Api.http_api('/version')
+            def no_return(self) -> dict:
+                pass
+
+        api 경로는 python 포멧 형식으로 작성할 수 있고 포멧 키워드는 메소드에서 입력받은 동일한 이름의 파라미터 값으로 대체 됨
+
+            @Api.http_api('/path/{sub_path}', method='POST')
+            def test(self, sub_path: str) -> dict:
+                pass
+
+            test('login') -> '/path/login'
+
+        혹은 'format' 값을 직접 return 하여 동적으로 api 경로를 생성할 수 있음
+
+            @Api.http_api('/path/{sub_path}/{extra_path}')
+            def test(self, sub_path: str) -> dict:
+                return {
+                    'format': {
+                        'extra_path': 'users',
+                    }
+                }
+
+            test('group') -> '/path/group/users'
+        """
         def decorator(class_method: callable) -> callable:
             @functools.wraps(class_method)
             def wrapper(self, *args: tuple, **kwds: dict) -> dict:
-                """
-                api에 추가적인 데이터가 필요한 경우 딕셔너리 형태로 리턴
-
-                    @Api.http_api('/path/{sub_path}/{extra_path}', method='POST')
-                    def test(self, sub_path: str, param1: str, param2: int, data1: str, data2: str) -> dict:
-                        return {
-                            'params': {
-                                'a': param1,
-                                'b': parma2,
-                            },
-                            'data': {
-                                'c': data1,
-                                'd': data2,
-                            },
-                            'headers': {
-                                'Accept': 'application/json'
-                            },
-                            'auth: ('user', 'password'),
-                            'format': {
-                                'extra_path': 'additonal_path',
-                            }
-                        }
-
-                api에 추가적인 데이터가 필요하지 않은 경우 리턴하지 않음
-
-                    @Api.http_api('/version')
-                    def no_return(self) -> dict:
-                        pass
-
-                api 경로는 python 포멧 형식으로 작성할 수 있고 포멧 키워드는 메소드에서 입력받은 동일한 이름의 파라미터 값으로 대체 됨
-
-                    @Api.http_api('/path/{sub_path}', method='POST')
-                    def test(self, sub_path: str) -> dict:
-                        pass
-
-                    test('login') -> '/path/login'
-
-                혹은 'format' 값을 직접 return 하여 동적으로 api 경로를 생성할 수 있음
-
-                    @Api.http_api('/path/{sub_path}/{extra_path}')
-                    def test(self, sub_path: str) -> dict:
-                        return {
-                            'format': {
-                                'extra_path': 'users',
-                            }
-                        }
-
-                    test('group') -> '/path/group/users'
-                """
-                # return value of an wrapped method
                 api: dict = class_method(self, *args, **kwds) or {}
                 self.adjust_api(api)
                 bound = inspect.signature(class_method).bind(self, *args, **kwds)
@@ -207,7 +209,7 @@ class GoogleDrive(Api):
         logger.debug(self.get_file.cache_info())
         return str(full_path), parent, web_view
 
-    @functools.lru_cache(maxsize=64)
+    @functools.lru_cache(maxsize=128)
     def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink') -> dict:
         try:
             result = self.api_drive.files().get(

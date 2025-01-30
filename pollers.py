@@ -213,7 +213,16 @@ class ActivityPoller(GoogleDrivePoller):
             while not self.dispatch_queue.empty():
                 data = None
                 try:
-                    data = self.dispatch_queue.get().item
+                    '''
+                    data = {
+                        'ancestor': str,
+                        'timestamp': datetime.datetime,
+                        'action': str,
+                        'action_detail': str | tuple | list | None,
+                        'target': tuple[str, str, str],
+                    }
+                    '''
+                    data: dict = self.dispatch_queue.get().item
                     # action 필터링
                     if data['action'] not in self.actions:
                         logger.debug(f'Skip: target={data["target"]} reason={data["action"]}')
@@ -371,15 +380,15 @@ class ActivityPoller(GoogleDrivePoller):
         for key in actionDetail:
             match key:
                 case 'create':
-                    action_detail = self.getOneOf(actionDetail[key])
+                    action_detail: str = self.getOneOf(actionDetail[key])
                 case 'move' if actionDetail[key].get('removedParents'):
                     action_detail: tuple = self.getTargetInfo(actionDetail[key]["removedParents"][0])
                 case 'rename' if actionDetail[key].get('oldTitle'):
-                    action_detail = actionDetail[key]['oldTitle']
+                    action_detail: str = actionDetail[key]['oldTitle']
                 case 'delete' | 'restore' | 'dlpChange' | 'reference':
-                    action_detail = actionDetail[key]['type']
+                    action_detail: str = actionDetail[key]['type']
                 case 'permissionChange':
-                    action_detail = actionDetail[key]['addedPermissions']
+                    action_detail: list = actionDetail[key]['addedPermissions']
                 case 'comment':
                     actionDetail[key].pop('mentionedUsers')
                     action_detail = actionDetail[key][self.getOneOf(actionDetail[key])]['subtype']
