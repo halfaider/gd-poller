@@ -1,5 +1,6 @@
 x-discord: &DISCORD
   class: DiscordDispatcher
+  # https://discord.com/api/webhooks/{webhook_id}/{webhook_token}
   webhook_id: 'xxxxxxxxxxxxxxxxxxx'
   webhook_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
   colors:
@@ -13,6 +14,7 @@ x-flaskfarm: &FLASKFARM
   url: 'http://flaskfarm:9999'
   apikey: 'xxxxxxxxxx'
 x-rclone: &RCLONE
+  # http://user:pass@host:port#remote_name
   url: 'http://user:pass@172.17.0.1:5574#gds2'
 x-kavita: &KAVITA
   url: 'http://kavita:5000'
@@ -20,10 +22,11 @@ x-kavita: &KAVITA
 
 logging:
   level: 'DEBUG'
-  format: '%(asctime)s|%(levelname).3s|%(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
+  #format: '%(asctime)s|%(levelname).3s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
+  format: '%(levelname).3s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
   redacted_patterns:
-    - 'apikey=(.{10})'
-    - "'apikey': '(.{10})'"
+    - "apikey=(.{10,36})"
+    - "'apikey': '(.{10,36})'"
     - "'X-Plex-Token': '(.{20})'"
     - "'X-Plex-Token=(.{20})'"
     - "webhooks/(.+)/(.+):\\s{"
@@ -37,12 +40,13 @@ google_drive:
     client_id: 'xxxxxxxxxxxxx.apps.googleusercontent.com'
     client_secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     refresh_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-    token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  cache_ttl: 600 # seconds
+  cache_maxsize: 64 # each
 
 pollers:
   - name: '단순 로그'
     targets:
-      - '{폴더id}#/GDRIVE/DATA/VOD원본'
+      - '{폴더ID}'
     dispatchers:
       - class: DummyDispatcher
 

@@ -6,7 +6,10 @@ import traceback
 import urllib.parse
 import functools
 import inspect
+import time
 from typing import Optional
+
+from helpers import apply_cache, get_ttl_hash
 
 ARGS = ('-m', 'pip', 'install', '-U')
 
@@ -38,12 +41,36 @@ logger = logging.getLogger(__name__)
 
 class Api:
 
-    url = None
-    url_parts = None
+    _url = None
+    _url_parts = None
+    _cache_ttl = 600 # seconds
+    _cache_maxsize = 64 # each
 
-    def __init__(self, url: str = '') -> None:
+    def __init__(self, url: str = '', cache_maxsize: int = 64, cache_ttl: int = 600) -> None:
         self.url = url.strip().strip('/')
-        self.url_parts = urllib.parse.urlparse(self.url)
+        self._cache_ttl = cache_ttl
+        self._cache_maxsize = cache_maxsize
+
+    @property
+    def url(self) -> str:
+        return self._url
+
+    @url.setter
+    def url(self, url: str) -> None:
+        self._url = url
+        self._url_parts = urllib.parse.urlparse(self.url)
+
+    @property
+    def url_parts(self) -> urllib.parse.ParseResult:
+        return self._url_parts
+
+    @property
+    def cache_ttl(self) -> int:
+        return self._cache_ttl
+
+    @property
+    def cache_maxsize(self) -> int:
+        return self._cache_maxsize
 
     def http_api(path: str, method: str = 'GET') -> callable:
         """
@@ -149,14 +176,15 @@ class GoogleDrive(Api):
     _api_drive = None
     _api_activity = None
 
-    def __init__(self, token: dict, scopes: tuple):
-        super(GoogleDrive, self).__init__()
+    def __init__(self, token: dict, scopes: tuple, cache_maxsize: int = 64, cache_ttl: int = 600):
+        super(GoogleDrive, self).__init__(cache_maxsize=cache_maxsize, cache_ttl=cache_ttl)
         self._token = token
         self._scopes = scopes
         self._credentials: credentials.Credentials = credentials.Credentials.from_authorized_user_info(self.token, self.scopes)
         authorized_http = AuthorizedHttp(self.credentials, http=Http())
         self._api_drive: Resource = build('drive', 'v3', requestBuilder=self.build_google_request, http=authorized_http)
         self._api_activity: Resource = build('driveactivity', 'v2', requestBuilder=self.build_google_request, http=authorized_http)
+        self.get_file = apply_cache(self.get_file, self.cache_maxsize)
 
     @property
     def token(self) -> str:
@@ -187,7 +215,7 @@ class GoogleDrive(Api):
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
         ancestor_id, _, root = ancestor.partition('#')
-        file = self.get_file(item_id)
+        file = self.get_file(item_id, ttl_hash=get_ttl_hash(self.cache_ttl))
         web_view = file.get('webViewLink')
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
@@ -195,7 +223,7 @@ class GoogleDrive(Api):
             current_path = [(file['name'], file['id'])]
             break_conuter = 100
             while file.get('parents') and break_conuter > 0:
-                file = self.get_file(file.get('parents')[0])
+                file = self.get_file(file.get('parents')[0], ttl_hash=get_ttl_hash(self.cache_ttl))
                 if root and file['id'] == ancestor_id:
                     current_path.append((root, ancestor_id))
                     break
@@ -209,15 +237,17 @@ class GoogleDrive(Api):
         logger.debug(self.get_file.cache_info())
         return str(full_path), parent, web_view
 
-    @functools.lru_cache(maxsize=128)
     def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink') -> dict:
+        '''
+        apply_cache() 되기 때문에 추가로 ttl_hash 인자를 받음
+        '''
         try:
             result = self.api_drive.files().get(
                 fileId=item_id,
                 fields=fields,
                 supportsAllDrives=True,
             ).execute()
-            logger.debug(f'file={result}')
+            #logger.debug(f'file={result}')
         except:
             logger.error(traceback.format_exc())
             result = {'id': item_id, 'name': None}
@@ -251,7 +281,6 @@ class Rclone(Api):
         self.password = url.password
         try:
             self.url = urllib.parse.urlunparse([url.scheme, url.netloc, '', '', '', ''])
-            self.url_parts = urllib.parse.urlparse(self.url)
         except Exception as e:
             logger.error(traceback.format_exc())
             logger.error(f'Rclone: {url=}')

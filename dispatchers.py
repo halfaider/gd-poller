@@ -126,10 +126,7 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
         target_path = self.get_mapping_path(data['path'])
         tp = pathlib.Path(target_path)
         if tp.suffix.lower() in ['.json', '.yaml', '.yml']:
-            if data['action'] == 'edit':
-                mode = 'REFRESH'
-            else:
-                return
+            mode = 'REFRESH'
         else:
             if data['action'] == 'delete':
                 mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'

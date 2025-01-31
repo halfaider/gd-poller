@@ -63,7 +63,12 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
 
         set_logger(kwds.get('logger'), config['logging']['level'], config['logging']['format'], config['logging']['redacted_patterns'], config['logging']['redacted_substitute'])
 
-        drive = GoogleDrive(config['google_drive']['token'], config['google_drive']['scopes'])
+        drive = GoogleDrive(
+            config['google_drive']['token'],
+            config['google_drive']['scopes'],
+            cache_maxsize=config['google_drive'].get('cache_maxsize', 64),
+            cache_ttl=config['google_drive'].get('cache_ttl', 600)
+        )
         for poller in config['pollers']:
             dispatcher_list = []
             for dispatcher in poller.get('dispatchers', [{'class': 'DummyDispatcher'}]):

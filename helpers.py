@@ -6,6 +6,7 @@ import re
 import asyncio
 import functools
 import pathlib
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
 from collections import OrderedDict
@@ -29,7 +30,7 @@ class RedactedFormatter(logging.Formatter):
         self.patterns = []
         self.substitute = substitute
         for pattern in patterns:
-            self.patterns.append(re.compile(pattern))
+            self.patterns.append(re.compile(pattern, re.I))
 
     def format(self, record):
         msg = super().format(record)
@@ -41,7 +42,7 @@ class RedactedFormatter(logging.Formatter):
                 else:
                     groups = [match.group(0)]
                 for found in groups:
-                    msg = self.redact(re.compile(found), msg)
+                    msg = self.redact(re.compile(found, re.I), msg)
         return msg
 
     def redact(self, pattern: re.Pattern, text: str) -> str:
@@ -154,3 +155,15 @@ async def await_sync(func: callable, *args, **kwds) -> Any:
 
 def get_last_dir(path_: str, is_dir: bool = False) -> str:
     return path_ if is_dir else str(pathlib.Path(path_).parent)
+
+
+def apply_cache(func: callable, maxsize: int = 64) -> callable:
+    @functools.lru_cache(maxsize=maxsize)
+    def wrapper(*args, ttl_hash: int = 3600, **kwds):
+        del ttl_hash
+        return func(*args, **kwds)
+    return wrapper
+
+
+def get_ttl_hash(seconds: int = 3600) -> int:
+    return round(time.time() / seconds)
