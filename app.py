@@ -66,6 +66,7 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         drive = GoogleDrive(
             config['google_drive']['token'],
             config['google_drive']['scopes'],
+            cache_enable=config['google_drive'].get('cache_enable', False),
             cache_maxsize=config['google_drive'].get('cache_maxsize', 64),
             cache_ttl=config['google_drive'].get('cache_ttl', 600)
         )

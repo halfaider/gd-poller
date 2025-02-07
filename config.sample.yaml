@@ -40,6 +40,7 @@ google_drive:
     client_id: 'xxxxxxxxxxxxx.apps.googleusercontent.com'
     client_secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     refresh_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  cache_enable: false
   cache_ttl: 600 # seconds
   cache_maxsize: 64 # each
 
