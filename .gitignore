@@ -5,3 +5,4 @@ config.yaml
 config.test.yaml
 README.html
 /test
+gd-test.py

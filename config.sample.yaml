@@ -1,8 +1,8 @@
 x-discord: &DISCORD
   class: DiscordDispatcher
   # https://discord.com/api/webhooks/{webhook_id}/{webhook_token}
-  webhook_id: 'xxxxxxxxxxxxxxxxxxx'
-  webhook_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  webhook_id: '1234567890123456789'
+  webhook_token: 'abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz123456'
   colors:
     # https://gist.github.com/thomasbnt/b6f455e2c7d743b796917fa3c205f812
     default: '0'
@@ -12,13 +12,13 @@ x-discord: &DISCORD
     edit: '16776960'
 x-flaskfarm: &FLASKFARM
   url: 'http://flaskfarm:9999'
-  apikey: 'xxxxxxxxxx'
+  apikey: 'ABCDEFGHI9'
 x-rclone: &RCLONE
   # http://user:pass@host:port#remote_name
   url: 'http://user:pass@172.17.0.1:5574#gds2'
 x-kavita: &KAVITA
   url: 'http://kavita:5000'
-  apikey: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  apikey: '123abcde-001f-002g-003h-ijklmnop0987'
 
 logging:
   level: 'DEBUG'
@@ -37,9 +37,10 @@ google_drive:
     - 'https://www.googleapis.com/auth/drive.readonly'
     - 'https://www.googleapis.com/auth/drive.activity.readonly'
   token:
-    client_id: 'xxxxxxxxxxxxx.apps.googleusercontent.com'
-    client_secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-    refresh_token: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    client_id: '123456789012-1234abcd5678efgh9012ijk3456lmno7.apps.googleusercontent.com'
+    client_secret: 'ABCDEF-a1b2c3d4e5f6g7h8j9k0l1m2n3o4'
+    refresh_token: '1//0a1b2c3d4f5g6h7i8j9k0l1m2n3o-4p5q6r7s8t9u0v1w2x-3y4z5a6b7c8d-9e0f1g2h3i4j5k6l7m-8n9o0p1q2r3s4t5u6v7w'
+    token: 'ya11.abcdef...j34kl' # optional
   cache_enable: false
   cache_ttl: 600 # seconds
   cache_maxsize: 64 # each
@@ -47,125 +48,134 @@ google_drive:
 pollers:
   - name: '단순 로그'
     targets:
-      - '{폴더ID}'
+      - '폴더_ID'
     dispatchers:
       - class: DummyDispatcher
-
-  - name: '디스코드 알람용'
-    polling_interval: 60
-    page_size: 100
-    actions:
-    patterns:
-    ignore_patterns:
+  
+  - name: 'plex_mate'
+    targets:
+      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/방송중'
     ignore_folder: false
-    dispatch_interval: 5
-    targets:
-      - '{폴더ID}#/mnt/gds/GDRIVE/VIDEO/방송중'
-      - '{폴더ID}#/mnt/gds/GDRIVE/VIDEO/일본 애니메이션'
-      - '{폴더ID}#/mnt/gds/GDRIVE/VIDEO/영화'
-      - '{폴더ID}#/mnt/gds/GDRIVE/VIDEO/외국TV'
-      - '{폴더ID}#/mnt/gds/GDRIVE/VIDEO/국내TV'
-      - '{폴더ID}#/mnt/gds/GDRIVE/DATA/VOD원본'
     dispatchers:
-      - <<: *DISCORD
-
-  - name: '카비타 스캔용'
-    polling_interval: 120
-    page_size: 30
-    ignore_folder: true
-    patterns: [.*]
-    targets:
-      - '{폴더ID}#/mnt/gds2/GDRIVE/READING/만화'
-    actions:
-      - 'create'
-      - 'move'
-      - 'delete'
-      - 'rename'
-    dispatchers:
-      - class: RcloneDispatcher
-        <<: *RCLONE
-        mappings:
-          - '/mnt/gds2/GDRIVE:/GDRIVE'
-      - class: KavitaDispatcher
-        <<: *KAVITA
-
-  - name: 'gds_tool 방송용'
-    polling_interval: 60
-    page_size: 35
-    ignore_folder: true
-    targets:
-      - '{폴더ID}#/mnt/gds/GDRIVE/VIDEO/방송중/외국'
-    actions:
-      - 'create'
-      - 'move'
-      - 'delete'
-    dispatchers:
-      - class: GDSToolDispatcher
-        <<: *FLASKFARM
-        mappings:
-          - '/mnt/gds/GDRIVE:/ROOT/GDRIVE'
-    ignore_patterns:
-      - '\.json$'
-      - '\.yml$'
-      - '\.yaml$'
-      - '\.smi$'
-      - '\.srt$'
-      - '\.txt$'
-      - '\.ass$'
-      - '\.git/?'
-      - '(\.log$|\.log\.)'
-
-  - name: '플렉스 스캔용'
-    targets:
-      - '{폴더ID}#/GDRIVE/VIDEO/국내TV/드라마'
-    actions:
-      - 'create'
-      - 'move'
-      - 'delete'
-    patterns:
-      - '\.mkv$'
-      - '\.mp4$'
-      - '\.avi$'
-      - '\.mov$'
-      - '\.divx$'
-      - '\.smi$'
-      - '\.srt$'
-      - '\.ass$'
-    dispatchers:
-      - class: RcloneDispatcher
-        <<: *RCLONE
       - class: PlexmateDispatcher
         <<: *FLASKFARM
-        mappings:
-          - '/GDRIVE:/mnt/gds2/GDRIVE'
 
-  - name: 'interval 간격으로 activity를 수집 후 동일한 폴더는 한번에 처리(부모 폴더를 새로고침 및 스캔)'
-    targets:
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/일본/가수'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 가, 나, 다, 라, ..., 하
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 0-9, A, B, C, D, ..., Z
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/차트'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/차트/지니 시대별 인기곡'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/국내/차트/지니 차트'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/가수' # 0-9, A, B, C, ..., L, M, N
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/가수' # O, P, Q, ..., X, Y, Z
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/차트'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/시대별 인기곡'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/외국/지니 차트'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/V.A'
-      - '{폴더ID}#/mnt/gds/GDRIVE/MUSIC/OST'
-    actions:
-      - 'create'
-      - 'move'
-      - 'delete'
-    dispatchers:
-      - class: PlexRcloneDispatcher
-        url: 'http://user:pass@172.17.0.1:5574#gds2'
-        mappings:
-          - '/mnt/gds/GDRIVE:/GDRIVE'
-        plex_url: 'http://plex:32400'
-        plex_token: '{PLEX_TOKEN}'
-        plex_mappings:
-          - '/mnt/gds/GDRIVE:/plex/GDRIVE'
-        interval: 60
-      - <<: *DISCORD
+
+#  - name: '디스코드 알람용'
+#    polling_interval: 60
+#    page_size: 100
+#    actions:
+#    patterns:
+#    ignore_patterns:
+#    ignore_folder: false
+#    dispatch_interval: 5
+#    targets:
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/방송중'
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/일본 애니메이션'
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/영화'
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/외국TV'
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/국내TV'
+#      - '폴더_ID#/mnt/gds/GDRIVE/DATA/VOD원본'
+#    dispatchers:
+#      - <<: *DISCORD
+
+#  - name: '카비타 스캔용'
+#    polling_interval: 120
+#    page_size: 30
+#    ignore_folder: true
+#    patterns: [.*]
+#    targets:
+#      - '폴더_ID#/mnt/gds2/GDRIVE/READING/만화'
+#    actions:
+#      - 'create'
+#      - 'move'
+#      - 'delete'
+#      - 'rename'
+#    dispatchers:
+#      - class: RcloneDispatcher
+#        <<: *RCLONE
+#        mappings:
+#          - '/mnt/gds2/GDRIVE:/GDRIVE'
+#      - class: KavitaDispatcher
+#        <<: *KAVITA
+
+#  - name: 'gds_tool 방송용'
+#    polling_interval: 60
+#    page_size: 35
+#    ignore_folder: true
+#    targets:
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/방송중/외국'
+#    actions:
+#      - 'create'
+#      - 'move'
+#      - 'delete'
+#    dispatchers:
+#      - class: GDSToolDispatcher
+#        <<: *FLASKFARM
+#        mappings:
+#          - '/mnt/gds/GDRIVE:/ROOT/GDRIVE'
+#    ignore_patterns:
+#      - '\.json$'
+#      - '\.yml$'
+#      - '\.yaml$'
+#      - '\.smi$'
+#      - '\.srt$'
+#      - '\.txt$'
+#      - '\.ass$'
+#      - '\.git/?'
+#      - '(\.log$|\.log\.)'
+
+#  - name: '플렉스 스캔용'
+#    targets:
+#      - '폴더_ID#/GDRIVE/VIDEO/국내TV/드라마'
+#    actions:
+#      - 'create'
+#      - 'move'
+#      - 'delete'
+#    patterns:
+#      - '\.mkv$'
+#      - '\.mp4$'
+#      - '\.avi$'
+#      - '\.mov$'
+#      - '\.divx$'
+#      - '\.smi$'
+#      - '\.srt$'
+#      - '\.ass$'
+#    dispatchers:
+#      - class: RcloneDispatcher
+#        <<: *RCLONE
+#      - class: PlexmateDispatcher
+#        <<: *FLASKFARM
+#        mappings:
+#          - '/GDRIVE:/mnt/gds2/GDRIVE'
+
+#  - name: 'interval 간격으로 activity를 수집 후 동일한 폴더는 한번에 처리(부모 폴더를 새로고침 및 스캔)'
+#    targets:
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/일본/가수'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 가, 나, 다, 라, ..., 하
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/국내/가수' # 0-9, A, B, C, D, ..., Z
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/국내/차트'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/국내/차트/지니 시대별 인기곡'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/국내/차트/지니 차트'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/외국/가수' # 0-9, A, B, C, ..., L, M, N
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/외국/가수' # O, P, Q, ..., X, Y, Z
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/외국/차트'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/외국/시대별 인기곡'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/외국/지니 차트'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/V.A'
+#      - '폴더_ID#/mnt/gds/GDRIVE/MUSIC/OST'
+#    actions:
+#      - 'create'
+#      - 'move'
+#      - 'delete'
+#    dispatchers:
+#      - class: PlexRcloneDispatcher
+#        url: 'http://username:password@127.0.0.1:5275'
+#        mappings:
+#          - '/mnt/gds/GDRIVE:/GDRIVE'
+#        plex_url: 'http://plex:32400'
+#        plex_token: 'AbCdEfG0HiJkLmNoP2Qr'
+#        plex_mappings:
+#          - '/mnt/gds/GDRIVE:/plex/GDRIVE'
+#        interval: 60
+#      - <<: *DISCORD
