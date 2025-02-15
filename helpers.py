@@ -7,6 +7,7 @@ import asyncio
 import functools
 import pathlib
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
 from collections import OrderedDict
@@ -132,7 +133,14 @@ def parse_response(response: requests.Response) -> dict[str, Any]:
 def parse_mappings(mappings: Iterable[str]) -> list[tuple[str]]:
     mapped = []
     for mapping in mappings:
-        source, _, target = mapping.partition(':')
+        splits = re.split(':', mapping, maxsplit=2)
+        if len(splits) > 2:
+            if len(splits[0]) < 2:
+                source, target = ':'.join(splits[:2]), splits[-1]
+            else:
+                source, target = splits[0], ':'.join(splits[1:])
+        else:
+            source, target = splits
         mapped.append((source, target))
     return mapped
 
@@ -167,3 +175,17 @@ def apply_cache(func: callable, maxsize: int = 64) -> callable:
 
 def get_ttl_hash(seconds: int = 3600) -> int:
     return round(time.time() / seconds)
+
+
+async def watch_process(process: subprocess.Popen, stop_flag: threading.Event, timeout: int = 300) -> None:
+    for i in range(timeout):
+        if process.poll() is not None or stop_flag.is_set():
+            break
+        await asyncio.sleep(1)
+        if i >= timeout - 1:
+            logger.warning(f'Timeout reached: {process.args}')
+    try:
+        if process.poll() is None:
+            process.kill()
+    except:
+        logger.error(traceback.format_exc())

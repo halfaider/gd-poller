@@ -2,9 +2,12 @@ import logging
 import pathlib
 import threading
 import asyncio
+import traceback
+import subprocess
+import shlex
 
 from apis import Rclone, Plex, Kavita, Discord, Flaskfarm
-from helpers import FolderBuffer, parse_mappings, map_path
+from helpers import FolderBuffer, parse_mappings, map_path, watch_process
 
 logger = logging.getLogger(__name__)
 
@@ -226,12 +229,10 @@ class PlexDispatcher(Dispatcher):
             self.plex.scan(p_, is_directory=True)
 
 
-class PlexRcloneDispatcher(RcloneDispatcher):
+class BufferedDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, interval: int = 30, plex_mappings: list = None) -> None:
-        super(PlexRcloneDispatcher, self).__init__(url=url, mappings=mappings)
-        self.plex = Plex(plex_url, plex_token)
-        self.plex_mappings = parse_mappings(plex_mappings) if plex_mappings else None
+    def __init__(self, interval: int = 30) -> None:
+        super(BufferedDispatcher, self).__init__()
         self.interval = interval
         self.folder_buffer = FolderBuffer()
 
@@ -241,23 +242,104 @@ class PlexRcloneDispatcher(RcloneDispatcher):
         if data.get('removed_path'):
             self.folder_buffer.put(data['removed_path'], 'delete', data['is_folder'])
 
+    def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        logger.debug(item)
+
     async def on_start(self) -> None:
         '''override'''
-        logger.debug(f'PlexRcloneDispatcher starts...')
         while not self.stop_event.is_set():
             while len(self.folder_buffer) > 0:
                 item: tuple[str, dict] = self.folder_buffer.pop()
-                logger.debug(item)
-                action, _, parent = item[0].partition('|')
-                match action:
-                    case 'delete':
-                        result = self.rclone.api_vfs_forget(parent, True).get('json', {})
-                        logger.info(f'Rclone: {result}')
-                    case _:
-                        remote_path = self.get_mapping_path(parent)
-                        self.rclone.refresh(remote_path)
-                plex_path = map_path(parent, self.plex_mappings) if self.plex_mappings else parent
-                self.plex.scan(plex_path)
+                try:
+                    self.buffered_dispatch(item)
+                except:
+                    logger.error(traceback.format_exc())
             for _ in range(self.interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
+
+
+class PlexRcloneDispatcher(BufferedDispatcher):
+
+    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, interval: int = 30, plex_mappings: list = None) -> None:
+        super(PlexRcloneDispatcher, self).__init__(interval=interval)
+        self.rclone = Rclone(url)
+        self.mappings = parse_mappings(mappings) if mappings else None
+        self.plex = Plex(plex_url, plex_token)
+        self.plex_mappings = parse_mappings(plex_mappings) if plex_mappings else None
+
+    def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        '''override'''
+        logger.debug(item)
+        action, _, parent = item[0].partition('|')
+        match action:
+            case 'delete':
+                result = self.rclone.api_vfs_forget(parent, True).get('json', {})
+                logger.info(f'Rclone: {result}')
+            case _:
+                remote_path = self.get_mapping_path(parent)
+                self.rclone.refresh(remote_path)
+        plex_path = map_path(parent, self.plex_mappings) if self.plex_mappings else parent
+        self.plex.scan(plex_path)
+
+
+class MultiPlexRcloneDispatcher(BufferedDispatcher):
+
+    def __init__(self, interval: int = 30, rclones: list = [], plexes: list = []) -> None:
+        super(MultiPlexRcloneDispatcher, self).__init__(interval=interval)
+        self.rclones = [RcloneDispatcher(**rclone) for rclone in rclones]
+        self.plexes = [PlexDispatcher(**plex) for plex in plexes]
+
+    def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        '''override'''
+        logger.debug(item)
+        action, _, parent = item[0].partition('|')
+        for rclone in self.rclones:
+            match action:
+                case 'delete':
+                    result = rclone.rclone.api_vfs_forget(parent, True).get('json', {})
+                    logger.info(f'Rclone: {result}')
+                case _:
+                    remote_path = rclone.get_mapping_path(parent)
+                    rclone.rclone.refresh(remote_path)
+        for plex in self.plexes:
+            plex_path = plex.get_mapping_path(parent)
+            plex.plex.scan(plex_path)
+
+
+class CommandDispatcher(Dispatcher):
+
+    def __init__(self, command: str, wait_for_process: bool = False, drop_during_process = False, timeout: int = 300, mappings: list = None) -> None:
+        super(CommandDispatcher, self).__init__(mappings=mappings)
+        self.command = command
+        self.wait_for_process = wait_for_process
+        self.drop_during_process = drop_during_process
+        self.timeout = timeout
+        self.process_watchers = set()
+
+    def dispatch(self, data: dict) -> None:
+        '''override'''
+        if self.drop_during_process and bool(self.process_watchers):
+            logger.warning(f'Already running: {self.process_watchers}')
+            return
+
+        cmd_parts = shlex.split(self.command)
+        cmd_parts.append(data['action'])
+        cmd_parts.append('directory' if data['is_folder'] else 'file')
+        cmd_parts.append(self.get_mapping_path(data['path']))
+        if data.get('removed_path'):
+            cmd_parts.append(self.get_mapping_path(data['removed_path']))
+        logger.info(f'Command: {cmd_parts}')
+
+        process = subprocess.Popen(cmd_parts)
+        if self.wait_for_process:
+            try:
+                process.wait(timeout=self.timeout)
+            except:
+                logger.error(traceback.format_exc())
+                logger.error(data['path'])
+        else:
+            task = asyncio.create_task(watch_process(process, self.stop_event, timeout=self.timeout))
+            task.set_name(data['path'])
+            self.process_watchers.add(task)
+            task.add_done_callback(self.process_watchers.discard)

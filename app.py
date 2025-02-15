@@ -80,13 +80,13 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
                 poller['targets'],
                 dispatcher_list,
                 name=poller['name'],
-                polling_interval=poller.get('polling_interval'),
-                page_size=poller.get('page_size'),
+                polling_interval=poller.get('polling_interval', 60),
+                page_size=poller.get('page_size', 50),
                 actions=poller.get('actions'),
                 patterns=poller.get('patterns'),
                 ignore_patterns=poller.get('ignore_patterns'),
-                ignore_folder=poller.get('ignore_folder'),
-                dispatch_interval=poller.get('dispatch_interval'))
+                ignore_folder=poller.get('ignore_folder', True),
+                dispatch_interval=poller.get('dispatch_interval', 1))
             pollers.append(activity_poller)
         for poller in pollers:
             tasks.append(asyncio.create_task(poller.start(), name=poller.name))

@@ -51,15 +51,17 @@ pollers:
       - '폴더_ID'
     dispatchers:
       - class: DummyDispatcher
-  
+
   - name: 'plex_mate'
     targets:
       - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/방송중'
     ignore_folder: false
     dispatchers:
       - class: PlexmateDispatcher
-        <<: *FLASKFARM
-
+        url: 'http://flaskfarm:9999'
+        apikey: 'ABCDEFGHI9'
+        mappings:
+          - '/mnt/gds/GDRIVE:/host/mnt/gds/GDRIVE'
 
 #  - name: '디스코드 알람용'
 #    polling_interval: 60
@@ -179,3 +181,39 @@ pollers:
 #          - '/mnt/gds/GDRIVE:/plex/GDRIVE'
 #        interval: 60
 #      - <<: *DISCORD
+
+#  - name: '여러 Rclone RC 및 plex 서버를 한번에 지정할 경우'
+#    targets:
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/방송중'
+#    dispatchers:
+#      - class: MultiPlexRcloneDispatcher
+#        interval: 30
+#        rclones:
+#          - url: 'http://username:password@localhost:5275'
+#            mappings:
+#              - '/host1/gds/GDRIVE:/GDRIVE'
+#        plexes:
+#          - url: 'http://plex-1:32400'
+#            token: '1bCdEfG0HiJkLmNoP2Qr'
+#            mappings:
+#              - '/GDRIVE:/plex1/gds2/GDRIVE'
+#          - url: 'http://plex-2:32400'
+#            token: '2bCdEfG0HiJkLmNoP2Qr'
+#            mappings:
+#              - '/GDRIVE:/plex2/gds2/GDRIVE'
+#          - url: 'http://plex-3:32400'
+#            token: '3bCdEfG0HiJkLmNoP2Qr'
+#            mappings:
+#              - '/GDRIVE:/plex3/gds2/GDRIVE'
+
+#  - name: '쉘 커맨드 실행용'
+#    targets:
+#      - '폴더_ID#/MY_DRIVE'
+#    dispatchers:
+#      - class: CommandDispatcher
+#        command: 'python3 /data/command/file-process.py'
+#        wait_for_process: false
+#        drop_during_process: false
+#        timeout: 60
+#        mappings:
+#          - '/MY_DRIVE:X:/downloads'

@@ -133,7 +133,11 @@ class GoogleDrivePoller:
 
     @dispatch_interval.setter
     def dispatch_interval(self, dispatch_interval: int) -> None:
-        self._dispatch_interval = int(dispatch_interval) if dispatch_interval else 1
+        try:
+            self._dispatch_interval = int(dispatch_interval)
+        except:
+            logger.error(traceback.format_exc())
+            self._dispatch_interval = 1
 
     @property
     def ignore_folder(self) -> bool:
