@@ -82,9 +82,18 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
 
         set_logger(kwds.get('logger'), config['logging']['level'], config['logging']['format'], config['logging']['redacted_patterns'], config['logging']['redacted_substitute'])
 
+        scopes = []
+        for scope in config['google_drive']['scopes']:
+            if 'http' in scope:
+                scopes.append(scope)
+            else:
+                scopes.append(f'https://www.googleapis.com/auth/{scope}')
+
+        logger.debug(f'scopes: {scopes}')
+
         drive = GoogleDrive(
             config['google_drive']['token'],
-            config['google_drive']['scopes'],
+            scopes,
             cache_enable=config['google_drive'].get('cache_enable', False),
             cache_maxsize=config['google_drive'].get('cache_maxsize', 64),
             cache_ttl=config['google_drive'].get('cache_ttl', 600)
