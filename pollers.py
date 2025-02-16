@@ -327,8 +327,9 @@ class ActivityPoller(GoogleDrivePoller):
                     try:
                         results = await await_sync(query.execute)
                     except Exception as e:
-                        logger.error(f'Polling failed: {ancestor=}')
                         logger.error(html.escape(traceback.format_exc()))
+                        #logger.error(html.escape(repr(e)))
+                        logger.error(f'Polling failed: {ancestor=}')
                         break
                     if results.get('nextPageToken'):
                         next_page_token = results.get('nextPageToken')

@@ -59,7 +59,26 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         else:
             CONFIG_FILE = pathlib.Path(__file__).with_name('config.yaml')
         with CONFIG_FILE.open(mode='r', encoding='utf-8') as file:
-            config = yaml.safe_load(file.read())
+            try:
+                config = yaml.safe_load(file.read())
+            except:
+                logger.error(traceback.format_exc())
+                logger.error(f'설정 파일을 불러올 수 없습니다. YAML 문법에 맞게 작성되었는지 확인해 보세요: {CONFIG_FILE.absolute()}')
+                return
+
+        if not config.get('logging'):
+            config['logging'] = {
+                'level': 'DEBUG',
+                'format': '%(asctime)s|%(levelname).3s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>',
+                'redacted_patterns': [
+                    "apikey=(.{10,36})",
+                    "'apikey': '(.{10,36})'",
+                    "'X-Plex-Token': '(.{20})'",
+                    "'X-Plex-Token=(.{20})'",
+                    "webhooks/(.+)/(.+):\\s{",
+                ],
+                'redacted_substitute': '<REDACTED>',
+            }
 
         set_logger(kwds.get('logger'), config['logging']['level'], config['logging']['format'], config['logging']['redacted_patterns'], config['logging']['redacted_substitute'])
 
