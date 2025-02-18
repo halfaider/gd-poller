@@ -127,7 +127,7 @@ pollers:
 #      - '\.git/?'
 #      - '(\.log$|\.log\.)'
 
-#  - name: '플렉스 스캔용'
+#  - name: 'rclone RC 서버에 vfs/refresh 요청 후 플렉스 서버에 스캔 요청'
 #    targets:
 #      - '폴더_ID#/GDRIVE/VIDEO/국내TV/드라마'
 #    actions:
@@ -146,8 +146,9 @@ pollers:
 #    dispatchers:
 #      - class: RcloneDispatcher
 #        <<: *RCLONE
-#      - class: PlexmateDispatcher
-#        <<: *FLASKFARM
+#      - class: PlexDispatcher
+#        url: 'http://plex:32400'
+#        token: 'AbCdEfG0HiJkLmNoP2Qr'
 #        mappings:
 #          - '/GDRIVE:/mnt/gds2/GDRIVE'
 
