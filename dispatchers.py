@@ -34,7 +34,7 @@ class Dispatcher:
     async def on_stop(self) -> None:
         pass
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''
         data = {
             'ancestor': str,
@@ -57,7 +57,7 @@ class Dispatcher:
 
 class DummyDispatcher(Dispatcher):
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         logger.info(f'DummyDispatcher: {data}')
 
@@ -68,7 +68,7 @@ class KavitaDispatcher(Dispatcher):
         super(KavitaDispatcher, self).__init__(mappings=mappings)
         self.kavita = Kavita(url, apikey)
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         parents = set()
         target_path = pathlib.Path(self.get_mapping_path(data['path']))
@@ -96,7 +96,7 @@ class FlaskfarmDispatcher(Dispatcher):
 
 class GDSToolDispatcher(FlaskfarmDispatcher):
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         match (data.get('action'), data.get('is_folder')):
             case 'create' | 'move' | 'move' | 'rename', _:
@@ -123,7 +123,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         scan_targets = []
         target_path = self.get_mapping_path(data['path'])
@@ -168,7 +168,7 @@ class DiscordDispatcher(Dispatcher):
                 self.colors[action] = colors[action]
         self.discord = Discord(url, webhook_id, webhook_token)
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         embed = {
             'color': self.colors.get(data['action'], self.colors['default']),
@@ -198,7 +198,7 @@ class RcloneDispatcher(Dispatcher):
         super(RcloneDispatcher, self).__init__(mappings=mappings)
         self.rclone = Rclone(url)
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         if data.get('action', '') == 'delete':
             self.rclone.api_vfs_forget(data['path'], data['is_folder'])
@@ -215,7 +215,7 @@ class PlexDispatcher(Dispatcher):
         super(PlexDispatcher, self).__init__(mappings=mappings)
         self.plex = Plex(url, token)
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         parents = set()
         target_path = pathlib.Path(self.get_mapping_path(data['path']))
@@ -236,7 +236,7 @@ class BufferedDispatcher(Dispatcher):
         self.interval = interval
         self.folder_buffer = FolderBuffer()
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
         if data.get('removed_path'):
@@ -317,7 +317,7 @@ class CommandDispatcher(Dispatcher):
         self.timeout = timeout
         self.process_watchers = set()
 
-    def dispatch(self, data: dict) -> None:
+    async def dispatch(self, data: dict) -> None:
         '''override'''
         if self.drop_during_process and bool(self.process_watchers):
             logger.warning(f'Already running: {self.process_watchers}')

@@ -294,7 +294,7 @@ class ActivityPoller(GoogleDrivePoller):
                     data['poller'] = self.name
                     for dispatcher in self.dispatcher_list:
                         # activity 발생 순서대로, dispatcher 배치 순서대로
-                        dispatcher.dispatch(data)
+                        await dispatcher.dispatch(data)
                 except Exception as e:
                     logger.error(traceback.format_exc())
                     logger.error(f'{data=}')

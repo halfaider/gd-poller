@@ -89,8 +89,6 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
             else:
                 scopes.append(f'https://www.googleapis.com/auth/{scope}')
 
-        logger.debug(f'scopes: {scopes}')
-
         drive = GoogleDrive(
             config['google_drive']['token'],
             scopes,
