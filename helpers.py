@@ -12,12 +12,11 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
 from collections import OrderedDict
 
-ARGS = ('-m', 'pip', 'install', '-U')
-
-try:
-    __import__('requests')
-except:
-    subprocess.check_call([sys.executable, *ARGS, 'requests'])
+for pkg in [('requests', 'requests')]:
+    try:
+        __import__(pkg[0])
+    except:
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', pkg[1]])
 
 import requests
 
@@ -189,3 +188,11 @@ async def watch_process(process: subprocess.Popen, stop_flag: threading.Event, t
             process.kill()
     except:
         logger.error(traceback.format_exc())
+
+
+def check_packages(packages: list) -> None:
+    for pkg in packages:
+        try:
+            __import__(pkg[0])
+        except:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', pkg[1]])

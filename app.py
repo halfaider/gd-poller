@@ -4,22 +4,17 @@ import datetime
 import logging
 import pathlib
 import asyncio
-import subprocess
-
-ARGS = ('-m', 'pip', 'install', '-U')
-
-try:
-    __import__('yaml')
-except:
-    subprocess.check_call([sys.executable, *ARGS, 'pyyaml'])
-
-import yaml
 
 import dispatchers
 from apis import GoogleDrive
 from pollers import ActivityPoller
-from helpers import RedactedFormatter, stop_event_loop
+from helpers import RedactedFormatter, check_packages, stop_event_loop
 
+check_packages([
+    ('yaml', 'pyyaml'),
+])
+
+import yaml
 
 logger = logging.getLogger(__name__)
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo

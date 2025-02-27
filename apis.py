@@ -1,5 +1,3 @@
-import sys
-import subprocess
 import pathlib
 import logging
 import traceback
@@ -8,32 +6,19 @@ import functools
 import inspect
 from typing import Optional
 
-from helpers import apply_cache, get_ttl_hash
+from helpers import apply_cache, get_ttl_hash, request, parse_response, check_packages
 
-ARGS = ('-m', 'pip', 'install', '-U')
-
-try:
-    __import__('httplib2')
-except:
-    subprocess.check_call([sys.executable, *ARGS, 'httplib2'])
-
-try:
-    __import__('googleapiclient')
-except:
-    subprocess.check_call([sys.executable, *ARGS, 'google-api-python-client'])
-
-try:
-    __import__('google.oauth2')
-except:
-    subprocess.check_call([sys.executable, *ARGS, 'google-auth'])
+check_packages([
+    ('httplib2', 'httplib2'),
+    ('googleapiclient', 'google-api-python-client'),
+    ('google.oauth2', 'google-auth')
+])
 
 from httplib2 import Http
 from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2 import credentials
 from googleapiclient.discovery import build, Resource
 from googleapiclient.http import HttpRequest
-
-from helpers import request, parse_response
 
 logger = logging.getLogger(__name__)
 
