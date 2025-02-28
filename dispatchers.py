@@ -89,8 +89,8 @@ class KavitaDispatcher(Dispatcher):
 
 class FlaskfarmDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, apikey: str = None, mappings: list = None) -> None:
-        super(FlaskfarmDispatcher, self).__init__(mappings=mappings)
+    def __init__(self, url: str, apikey: str, *args, mappings: list = None, **kwds) -> None:
+        super(FlaskfarmDispatcher, self).__init__(*args, mappings=mappings, **kwds)
         self.flaskfarm = Flaskfarm(url, apikey)
 
 
@@ -99,14 +99,12 @@ class GDSToolDispatcher(FlaskfarmDispatcher):
     async def dispatch(self, data: dict) -> None:
         '''override'''
         match (data.get('action'), data.get('is_folder')):
-            case 'create' | 'move' | 'move' | 'rename', _:
+            case 'create' | 'move' | 'rename', _:
                 scan_mode = 'ADD'
             case 'delete', True:
                 scan_mode = 'REMOVE_FOLDER'
             case 'delete', False:
                 scan_mode = 'REMOVE_FILE'
-            case 'edit', _:
-                scan_mode = 'REFRESH'
             case _, _:
                 scan_mode = None
         if not scan_mode:
@@ -231,8 +229,8 @@ class PlexDispatcher(Dispatcher):
 
 class BufferedDispatcher(Dispatcher):
 
-    def __init__(self, interval: int = 30) -> None:
-        super(BufferedDispatcher, self).__init__()
+    def __init__(self, *args, interval: int = 30, **kwds) -> None:
+        super(BufferedDispatcher, self).__init__(*args, **kwds)
         self.interval = interval
         self.folder_buffer = FolderBuffer()
 

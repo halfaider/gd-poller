@@ -62,9 +62,7 @@ class FolderBuffer:
             children: set[str] = self.buffer[key]['children']
             children.add(target.name)
         else:
-            self.buffer[key] = {
-                'children': set([target.name]),
-            }
+            self.buffer[key] = {'children': set([] if is_directory else [target.name])}
 
     def pop(self) -> tuple[str, dict]:
         if self.buffer:
