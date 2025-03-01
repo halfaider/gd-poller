@@ -229,7 +229,7 @@ class ActivityPoller(GoogleDrivePoller):
                     data: dict = self.dispatch_queue.get().item
                     # action 필터링
                     if data['action'] not in self.actions:
-                        logger.debug(f'Skip: target={data["target"]} reason={data["action"]}')
+                        logger.debug(f'Skipped: target={data["target"]} reason={data["action"]}')
                         continue
                     # 폴더 타입 확인
                     if data['target'][2] in [
@@ -241,11 +241,11 @@ class ActivityPoller(GoogleDrivePoller):
                         data['is_folder'] = False
                     # 폴더 무시 판단
                     if self.ignore_folder and data['is_folder']:
-                        logger.debug(f'Skip: target={data["target"]} reason=folder')
+                        logger.debug(f'Skipped: target={data["target"]} reason=folder')
                         continue
                     # 대상이 영구히 삭제돼서 조회 불가능 할 경우
                     if data['action'] == 'delete' and data['action_detail'] != 'TRASH':
-                        logger.debug(f'Skip: target={data["target"]} reason="deleted permanently"')
+                        logger.debug(f'Skipped: target={data["target"]} reason="deleted permanently"')
                         continue
                     # 대상 경로
                     target_id = data['target'][1].partition('/')[-1]
@@ -264,10 +264,10 @@ class ActivityPoller(GoogleDrivePoller):
                         data['link'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
                     # 패턴 체크
                     if not self.check_patterns(data['path'], self.patterns):
-                        logger.debug(f'Skip: target={data["target"]} reason="Not match with patterns"')
+                        logger.debug(f'Skipped: target={data["target"]} reason="Not match with patterns"')
                         continue
                     if self.check_patterns(data['path'], self.ignore_patterns):
-                        logger.debug(f'Skip: target={data["target"]} reason="Match with ignore patterns"')
+                        logger.debug(f'Skipped: target={data["target"]} reason="Match with ignore patterns"')
                         continue
                     # move, rename일 경우 소스 경로
                     data['removed_path'] = None
@@ -284,10 +284,10 @@ class ActivityPoller(GoogleDrivePoller):
                         data['removed_path'] = str(pathlib.Path(data['path']).with_name(data['action_detail']))
                     # removed_path 패턴 체크
                     if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
-                        logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Not match with patterns"')
+                        logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Not match with patterns"')
                         data['removed_path'] = None
                     if data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
-                        logger.debug(f'Skip: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
+                        logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
                         data['removed_path'] = None
                     # 기타 정보
                     data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')

@@ -12,11 +12,16 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, Union, Iterable
 from collections import OrderedDict
 
-for pkg in [('requests', 'requests')]:
-    try:
-        __import__(pkg[0])
-    except:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', pkg[1]])
+
+def check_packages(packages: list) -> None:
+    for pkg in packages:
+        try:
+            __import__(pkg[0])
+        except:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', pkg[1]])
+
+
+check_packages([('requests', 'requests')])
 
 import requests
 
@@ -50,19 +55,24 @@ class RedactedFormatter(logging.Formatter):
 
 
 class FolderBuffer:
+    '''
+    'parent_path': {
+        'action1': {('file' | 'folder', 'name1'), ('file' | 'folder', 'name2')},
+        'action2': {('file' | 'folder', 'name3'), ('file' | 'folder', 'name4')}
+    }
+    '''
 
     def __init__(self) -> None:
         self.buffer = OrderedDict()
 
     def put(self, path: str, action: str = 'create', is_directory: bool = False) -> None:
         target = pathlib.Path(path)
-        parent = str(target) if is_directory else str(target.parent)
-        key = f'{action}|{parent}'
+        key = str(target.parent)
         if key in self.buffer:
-            children: set[str] = self.buffer[key]['children']
-            children.add(target.name)
+            self.buffer[key].setdefault(action, set())
+            self.buffer[key][action].add(('folder' if is_directory else 'file', target.name))
         else:
-            self.buffer[key] = {'children': set([] if is_directory else [target.name])}
+            self.buffer[key] = {action: set([('folder' if is_directory else 'file', target.name)])}
 
     def pop(self) -> tuple[str, dict]:
         if self.buffer:
@@ -186,11 +196,3 @@ async def watch_process(process: subprocess.Popen, stop_flag: threading.Event, t
             process.kill()
     except:
         logger.error(traceback.format_exc())
-
-
-def check_packages(packages: list) -> None:
-    for pkg in packages:
-        try:
-            __import__(pkg[0])
-        except:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', pkg[1]])

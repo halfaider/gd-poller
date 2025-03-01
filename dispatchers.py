@@ -55,6 +55,36 @@ class Dispatcher:
         return map_path(target_path, self.mappings) if self.mappings else target_path
 
 
+class BufferedDispatcher(Dispatcher):
+
+    def __init__(self, *args, interval: int = 30, **kwds) -> None:
+        super(BufferedDispatcher, self).__init__(*args, **kwds)
+        self.interval = interval
+        self.folder_buffer = FolderBuffer()
+
+    async def dispatch(self, data: dict) -> None:
+        '''override'''
+        self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
+        if data.get('removed_path'):
+            self.folder_buffer.put(data['removed_path'], 'delete', data['is_folder'])
+
+    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        logger.debug(item)
+
+    async def on_start(self) -> None:
+        '''override'''
+        while not self.stop_event.is_set():
+            while len(self.folder_buffer) > 0:
+                item: tuple[str, dict] = self.folder_buffer.pop()
+                try:
+                    await self.buffered_dispatch(item)
+                except:
+                    logger.error(traceback.format_exc())
+            for _ in range(self.interval):
+                await asyncio.sleep(1)
+                if self.stop_event.is_set(): break
+
+
 class DummyDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
@@ -199,12 +229,12 @@ class RcloneDispatcher(Dispatcher):
     async def dispatch(self, data: dict) -> None:
         '''override'''
         if data.get('action', '') == 'delete':
-            self.rclone.api_vfs_forget(data['path'], data['is_folder'])
+            self.rclone.forget(data['removed_path'], data['is_folder'])
             return
-        remote_path = self.get_mapping_path(data['path'])
-        self.rclone.refresh(remote_path)
+        remote_path = pathlib.Path(self.get_mapping_path(data['path']))
+        self.rclone.refresh(str(remote_path) if data['is_folder'] else str(remote_path.parent))
         if data.get('removed_path'):
-            self.rclone.api_vfs_forget(data['removed_path'], data['is_folder'])
+            self.rclone.forget(data['removed_path'], data['is_folder'])
 
 
 class PlexDispatcher(Dispatcher):
@@ -215,70 +245,14 @@ class PlexDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        parents = set()
-        target_path = pathlib.Path(self.get_mapping_path(data['path']))
-        target_path = str(target_path) if data['is_folder'] else str(target_path.parent)
-        parents.add(target_path)
+        targets = set()
+        plex_path = pathlib.Path(self.get_mapping_path(data['path']))
+        targets.add(str(plex_path) if data['is_folder'] else str(plex_path.parent))
         if data.get('removed_path'):
-            removed_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
-            removed_path = str(removed_path) if data['is_folder'] else str(removed_path.parent)
-            parents.add(removed_path)
-        for p_ in parents:
+            removed_plex_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
+            targets.add(str(removed_plex_path) if data['is_folder'] else str(removed_plex_path.parent))
+        for p_ in targets:
             self.plex.scan(p_, is_directory=True)
-
-
-class BufferedDispatcher(Dispatcher):
-
-    def __init__(self, *args, interval: int = 30, **kwds) -> None:
-        super(BufferedDispatcher, self).__init__(*args, **kwds)
-        self.interval = interval
-        self.folder_buffer = FolderBuffer()
-
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
-        self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
-        if data.get('removed_path'):
-            self.folder_buffer.put(data['removed_path'], 'delete', data['is_folder'])
-
-    def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(item)
-
-    async def on_start(self) -> None:
-        '''override'''
-        while not self.stop_event.is_set():
-            while len(self.folder_buffer) > 0:
-                item: tuple[str, dict] = self.folder_buffer.pop()
-                try:
-                    self.buffered_dispatch(item)
-                except:
-                    logger.error(traceback.format_exc())
-            for _ in range(self.interval):
-                await asyncio.sleep(1)
-                if self.stop_event.is_set(): break
-
-
-class PlexRcloneDispatcher(BufferedDispatcher):
-
-    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, interval: int = 30, plex_mappings: list = None) -> None:
-        super(PlexRcloneDispatcher, self).__init__(interval=interval)
-        self.rclone = Rclone(url)
-        self.mappings = parse_mappings(mappings) if mappings else None
-        self.plex = Plex(plex_url, plex_token)
-        self.plex_mappings = parse_mappings(plex_mappings) if plex_mappings else None
-
-    def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        '''override'''
-        logger.debug(item)
-        action, _, parent = item[0].partition('|')
-        match action:
-            case 'delete':
-                result = self.rclone.api_vfs_forget(parent, True).get('json', {})
-                logger.info(f'Rclone: {result}')
-            case _:
-                remote_path = self.get_mapping_path(parent)
-                self.rclone.refresh(remote_path)
-        plex_path = map_path(parent, self.plex_mappings) if self.plex_mappings else parent
-        self.plex.scan(plex_path)
 
 
 class MultiPlexRcloneDispatcher(BufferedDispatcher):
@@ -288,21 +262,43 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         self.rclones = [RcloneDispatcher(**rclone) for rclone in rclones]
         self.plexes = [PlexDispatcher(**plex) for plex in plexes]
 
-    def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
         logger.debug(item)
-        action, _, parent = item[0].partition('|')
-        for rclone in self.rclones:
-            match action:
-                case 'delete':
-                    result = rclone.rclone.api_vfs_forget(parent, True).get('json', {})
-                    logger.info(f'Rclone: {result}')
-                case _:
-                    remote_path = rclone.get_mapping_path(parent)
-                    rclone.rclone.refresh(remote_path)
-        for plex in self.plexes:
-            plex_path = plex.get_mapping_path(parent)
-            plex.plex.scan(plex_path)
+        parent = pathlib.Path(item[0])
+        deletes = item[1].pop('delete', set())
+        for dispatcher in self.rclones:
+            for is_folder, name in deletes:
+                dispatcher.rclone.forget(str(parent / name), is_folder)
+            dispatcher.rclone.refresh(dispatcher.get_mapping_path(str(parent)))
+        has_file = False
+        folders = []
+        for action_value in item[1].values():
+            for type_, name in action_value:
+                if type_ == 'file':
+                    has_file = True
+                else:
+                    folders.append(str(parent / name))
+        scan_targets = [str(parent)] if has_file else folders
+        for dispatcher in self.plexes:
+            for target in scan_targets:
+                dispatcher.plex.scan(dispatcher.get_mapping_path(target))
+
+
+class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
+    '''DEPRECATED'''
+
+    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, interval: int = 30, plex_mappings: list = None) -> None:
+        rclones = [{
+            'url': url,
+            'mappings': mappings
+        }]
+        plexes = [{
+            'url': plex_url,
+            'token': plex_token,
+            'mappings': plex_mappings
+        }]
+        super(PlexRcloneDispatcher, self).__init__(interval, rclones, plexes)
 
 
 class CommandDispatcher(Dispatcher):

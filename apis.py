@@ -348,6 +348,10 @@ class Rclone(Api):
                 return
         logger.warning(f'Rclone: It has hit the top-level path.')
 
+    def forget(self, local_path: str, is_directory: bool = False) -> None:
+        result = self.api_vfs_forget(local_path, is_directory).get('json', {})
+        logger.debug(f'Rclone: {result}')
+
 
 class Plex(Api):
 
