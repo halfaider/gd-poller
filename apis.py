@@ -506,3 +506,7 @@ class Flaskfarm(Api):
                 'apikey': self.apikey
             }
         }
+
+    def gds_tool_fp_broadcast(self, gds_path: str, scan_mode: str) -> dict:
+        self.api_gds_tool_fp_broadcast(gds_path, scan_mode)
+        logger.info(f'gds_tool: mode={scan_mode} target="{gds_path}"')

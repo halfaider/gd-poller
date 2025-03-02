@@ -124,29 +124,47 @@ class FlaskfarmDispatcher(Dispatcher):
         self.flaskfarm = Flaskfarm(url, apikey)
 
 
-class GDSToolDispatcher(FlaskfarmDispatcher):
+class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
+
+    ADD_ACTIONS = ('create', 'move', 'rename')
+
+    def __init__(self, url: str, apikey: str, *args, mappings: list = None, interval: int = 30, **kwds) -> None:
+        super(GDSToolDispatcher, self).__init__(url, apikey, *args, mappings=mappings, interval=interval, **kwds)
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        match (data.get('action'), data.get('is_folder')):
-            case 'create' | 'move' | 'rename', _:
-                scan_mode = 'ADD'
-            case 'delete', True:
-                scan_mode = 'REMOVE_FOLDER'
-            case 'delete', False:
-                scan_mode = 'REMOVE_FILE'
-            case _, _:
-                scan_mode = None
-        if not scan_mode:
-            logger.warning(f'No applicable action: {data["action"]}')
-            return
-        gds_path = self.get_mapping_path(data['path'])
-        logger.info(f'gds_tool: mode={scan_mode} target="{gds_path}"')
-        self.flaskfarm.api_gds_tool_fp_broadcast(gds_path, scan_mode)
+        deletes = []
         if data.get('removed_path'):
-            removed_scan_mode = 'REMOVE_FOLDER' if data.get('is_folder') else 'REMOVE_FILE'
-            removed_gds_path = self.get_mapping_path(data['removed_path'])
-            self.flaskfarm.api_gds_tool_fp_broadcast(removed_gds_path, removed_scan_mode)
+            deletes.append(data['removed_path'])
+        if data.get('action', '') == 'delete':
+            deletes.append(data['path'])
+        else:
+            if data['is_folder']:
+                if data['action'] in self.ADD_ACTIONS:
+                    self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(data['path']), 'ADD')
+                else:
+                    logger.warning(f'No applicable action: {data["action"]}')
+            else:
+                self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
+        for deleted in deletes:
+            scan_mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
+            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(deleted), scan_mode)
+
+    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        '''override'''
+        logger.debug(item)
+        parent = pathlib.Path(item[0])
+        for action in item[1]:
+            if action not in self.ADD_ACTIONS:
+                logger.warning(f'No applicable action: {action}')
+                continue
+            if not item[1][action]:
+                continue
+            if len(item[1][action]) > 1:
+                target = str(parent)
+            else:
+                target = str(parent / item[1][action][0][1])
+            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target), 'ADD')
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
