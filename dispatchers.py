@@ -163,7 +163,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
             if len(item[1][action]) > 1:
                 target = str(parent)
             else:
-                target = str(parent / item[1][action][0][1])
+                target = str(parent / item[1][action].pop()[1])
             self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target), 'ADD')
 
 
