@@ -206,10 +206,7 @@ class GoogleDrive(Api):
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
         ancestor_id, _, root = ancestor.partition('#')
-        if self.cache_enable:
-            file = self.get_file(item_id, ttl_hash=get_ttl_hash(self.cache_ttl))
-        else:
-            file = self.get_file(item_id)
+        file = self.get_file(item_id)
         web_view = file.get('webViewLink')
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
