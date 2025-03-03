@@ -158,13 +158,10 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
             if action not in self.ADD_ACTIONS:
                 logger.warning(f'No applicable action: {action}')
                 continue
-            if not item[1][action]:
-                continue
-            if len(item[1][action]) > 1:
-                target = str(parent)
-            else:
-                target = str(parent / item[1][action].pop()[1])
-            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target), 'ADD')
+            for _, name in item[1][action]:
+                target = str(parent / name)
+                self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target), 'ADD')
+                break
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
