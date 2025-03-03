@@ -159,8 +159,9 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
                 logger.warning(f'No applicable action: {action}')
                 continue
             for _, name in item[1][action]:
-                target = str(parent / name)
-                self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target), 'ADD')
+                target: pathlib.Path = parent / name
+                scan_mode = 'REFRESH' if target.suffix.lower() in ['.json', '.yaml', '.yml'] else 'ADD'
+                self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(str(target)), scan_mode)
                 break
 
 
