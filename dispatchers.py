@@ -162,6 +162,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
                 target: pathlib.Path = parent / name
                 scan_mode = 'REFRESH' if target.suffix.lower() in ['.json', '.yaml', '.yml'] else 'ADD'
                 self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(str(target)), scan_mode)
+                await asyncio.sleep(1.0)
                 break
 
 
