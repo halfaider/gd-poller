@@ -127,43 +127,51 @@ class FlaskfarmDispatcher(Dispatcher):
 class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
 
     ADD_ACTIONS = ('create', 'move', 'rename')
+    INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
 
     def __init__(self, url: str, apikey: str, *args, mappings: list = None, interval: int = 30, **kwds) -> None:
         super(GDSToolDispatcher, self).__init__(url, apikey, *args, mappings=mappings, interval=interval, **kwds)
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
+        removed_path = pathlib.Path(data.get('removed_path')) if data.get('removed_path') else None
+        path = pathlib.Path(data['path'])
         deletes = []
-        if data.get('removed_path'):
+        if removed_path and removed_path.suffix.lower() not in self.INFO_EXTENSIONS:
             deletes.append(data['removed_path'])
-        if data.get('action', '') == 'delete':
-            deletes.append(data['path'])
+        if data.get('action', '') == 'delete' and path.suffix.lower() not in self.INFO_EXTENSIONS:
+            deletes.append(str(path))
+        elif data['action'] not in self.ADD_ACTIONS:
+            logger.warning(f'No applicable action: {data["action"]} on "{str(path)}"')
         else:
             if data['is_folder']:
-                if data['action'] in self.ADD_ACTIONS:
-                    self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(data['path']), 'ADD')
-                else:
-                    logger.warning(f'No applicable action: {data["action"]}')
+                self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(str(path)), 'ADD')
             else:
-                self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
-        for deleted in deletes:
-            scan_mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
-            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(deleted), scan_mode)
+                self.folder_buffer.put(str(path), data['action'], data['is_folder'])
+        for idx, deleted in enumerate(deletes, start=1):
+            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(deleted), 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE')
+            if idx < len(deletes):
+                await asyncio.sleep(1.0)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
         logger.debug(item)
         parent = pathlib.Path(item[0])
+        targets: list[tuple[str, str, float]] = []
         for action in item[1]:
             if action not in self.ADD_ACTIONS:
-                logger.warning(f'No applicable action: {action}')
+                logger.warning(f'No applicable action: {action} in "{str(parent)}')
                 continue
-            for _, name in item[1][action]:
-                target: pathlib.Path = parent / name
-                scan_mode = 'REFRESH' if target.suffix.lower() in ['.json', '.yaml', '.yml'] else 'ADD'
-                self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(str(target)), scan_mode)
+            for idx, pair in enumerate(item[1][action], start=1):
+                target: pathlib.Path = parent / pair[1]
+                if idx > 1:
+                    logger.debug(f'Skipped: {str(target)} reason="Multiple items"')
+                    continue
+                targets.append((str(target), 'REFRESH' if target.suffix.lower() in self.INFO_EXTENSIONS else 'ADD'))
+        for idx, target in enumerate(targets, start=1):
+            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target[0]), target[1])
+            if idx < len(item[1][action]):
                 await asyncio.sleep(1.0)
-                break
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
@@ -295,10 +303,9 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
                 if type_ == 'file':
                     has_file = True
                 else:
-                    folders.append(str(parent / name))
-        scan_targets = [str(parent)] if has_file else folders
+                    folders.append((str(parent / name)))
         for dispatcher in self.plexes:
-            for target in scan_targets:
+            for target in [str(parent)] if has_file else folders:
                 dispatcher.plex.scan(dispatcher.get_mapping_path(target))
 
 

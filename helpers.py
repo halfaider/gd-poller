@@ -74,7 +74,7 @@ class FolderBuffer:
         else:
             self.buffer[key] = {action: set([('folder' if is_directory else 'file', target.name)])}
 
-    def pop(self) -> tuple[str, dict]:
+    def pop(self) -> tuple[str, dict[str, set[tuple[str, str]]]]:
         if self.buffer:
             return self.buffer.popitem(last=False)
 
