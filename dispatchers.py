@@ -162,12 +162,19 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
             if action not in self.ADD_ACTIONS:
                 logger.warning(f'No applicable action: {action} in "{str(parent)}')
                 continue
-            for idx, pair in enumerate(item[1][action], start=1):
-                target: pathlib.Path = parent / pair[1]
+            info_files = []
+            normal_files = []
+            for _, name in item[1][action]:
+                target: pathlib.Path = parent / name
+                if target.suffix.lower() in self.INFO_EXTENSIONS:
+                    info_files.append((str(target), 'REFRESH'))
+                else:
+                    normal_files.append((str(target), 'ADD'))
+            for idx, target in enumerate(normal_files.extend(info_files), start=1):
                 if idx > 1:
-                    logger.debug(f'Skipped: {str(target)} reason="Multiple items"')
+                    logger.debug(f'Skipped: {target[0]} reason="Multiple items"')
                     continue
-                targets.append((str(target), 'REFRESH' if target.suffix.lower() in self.INFO_EXTENSIONS else 'ADD'))
+                targets.append(target)
         for idx, target in enumerate(targets, start=1):
             self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target[0]), target[1])
             if idx < len(item[1][action]):
