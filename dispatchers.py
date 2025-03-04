@@ -170,7 +170,8 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
                     info_files.append((str(target), 'REFRESH'))
                 else:
                     normal_files.append((str(target), 'ADD'))
-            for idx, target in enumerate(normal_files.extend(info_files), start=1):
+            files = normal_files.extend(info_files)
+            for idx, target in enumerate(files, start=1):
                 if idx > 1:
                     logger.debug(f'Skipped: {target[0]} reason="Multiple items"')
                     continue
