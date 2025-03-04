@@ -4,6 +4,7 @@ import traceback
 import urllib.parse
 import functools
 import inspect
+import time
 from typing import Optional
 
 from helpers import apply_cache, get_ttl_hash, request, parse_response, check_packages
@@ -206,7 +207,8 @@ class GoogleDrive(Api):
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
         ancestor_id, _, root = ancestor.partition('#')
-        file = self.get_file(item_id)
+        # do not use cache
+        file = self.get_file(item_id, ttl_hash=time.time())
         web_view = file.get('webViewLink')
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
@@ -214,10 +216,8 @@ class GoogleDrive(Api):
             current_path = [(file['name'], file['id'])]
             break_conuter = 100
             while file.get('parents') and break_conuter > 0:
-                if self.cache_enable:
-                    file = self.get_file(file.get('parents')[0], ttl_hash=get_ttl_hash(self.cache_ttl))
-                else:
-                    file = self.get_file(file.get('parents')[0])
+                ttl_hash = get_ttl_hash(self.cache_ttl) if self.cache_enable else time.time()
+                file = self.get_file(file.get('parents')[0], ttl_hash=ttl_hash)
                 if root and file['id'] == ancestor_id:
                     current_path.append((root, ancestor_id))
                     break
@@ -232,7 +232,8 @@ class GoogleDrive(Api):
             logger.debug(self.get_file.cache_info())
         return str(full_path), parent, web_view
 
-    def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink') -> dict:
+    def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink', ttl_hash: int | float = 3600) -> dict:
+        del ttl_hash
         try:
             result = self.api_drive.files().get(
                 fileId=item_id,
