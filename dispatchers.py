@@ -149,6 +149,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
             else:
                 self.folder_buffer.put(str(path), data['action'], data['is_folder'])
         for idx, deleted in enumerate(deletes, start=1):
+            # plex_mate에서 파일 존재 여부 체크하기 때문에 각각 처리
             self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(deleted), 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE')
             if idx < len(deletes):
                 await asyncio.sleep(1.0)
@@ -157,7 +158,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
         '''override'''
         logger.debug(item)
         parent = pathlib.Path(item[0])
-        targets: list[tuple[str, str, float]] = []
+        targets: list[tuple[str, str]] = []
         for action in item[1]:
             if action not in self.ADD_ACTIONS:
                 logger.warning(f'No applicable action: {action} in "{str(parent)}')

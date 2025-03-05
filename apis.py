@@ -5,6 +5,7 @@ import urllib.parse
 import functools
 import inspect
 import time
+import threading
 from typing import Optional
 
 from helpers import apply_cache, get_ttl_hash, request, parse_response, check_packages
@@ -177,6 +178,14 @@ class GoogleDrive(Api):
         self._api_activity: Resource = build('driveactivity', 'v2', requestBuilder=self.build_google_request, http=authorized_http)
         if self.cache_enable:
             self.get_file = apply_cache(self.get_file, self.cache_maxsize)
+            #def check_cache():
+            #    while True:
+            #        try:
+            #            logger.debug(self.get_file.cache_info())
+            #        except:
+            #            logger.error(traceback.format_exc())
+            #        time.sleep(60)
+            #threading.Thread(target=check_cache).start()
 
     @property
     def token(self) -> str:
