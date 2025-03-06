@@ -262,13 +262,6 @@ class ActivityPoller(GoogleDrivePoller):
                         else:
                             url_folder_id = parent[1]
                         data['link'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
-                    # 패턴 체크
-                    if not self.check_patterns(data['path'], self.patterns):
-                        logger.debug(f'Skipped: target={data["target"]} reason="Not match with patterns"')
-                        continue
-                    if self.check_patterns(data['path'], self.ignore_patterns):
-                        logger.debug(f'Skipped: target={data["target"]} reason="Match with ignore patterns"')
-                        continue
                     # move, rename일 경우 소스 경로
                     data['removed_path'] = None
                     if data['action'] == 'move' and data['action_detail']:
@@ -282,16 +275,31 @@ class ActivityPoller(GoogleDrivePoller):
                     elif data['action'] == 'rename' and data['action_detail']:
                         logger.debug(f'Renamed from: {data["action_detail"]}')
                         data['removed_path'] = str(pathlib.Path(data['path']).with_name(data['action_detail']))
+                    # 기타 정보
+                    data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
+                    data['poller'] = self.name
+                    # 패턴 체크
+                    if not self.check_patterns(data['path'], self.patterns):
+                        logger.debug(f'Skipped: target={data["path"]} reason="Not match with patterns"')
+                        data['path'] = None
+                    elif self.check_patterns(data['path'], self.ignore_patterns):
+                        logger.debug(f'Skipped: target={data["path"]} reason="Match with ignore patterns"')
+                        data['path'] = None
                     # removed_path 패턴 체크
                     if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
                         logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Not match with patterns"')
                         data['removed_path'] = None
-                    if data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
+                    elif data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
                         logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
                         data['removed_path'] = None
-                    # 기타 정보
-                    data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
-                    data['poller'] = self.name
+                    # 경로 정보가 없을 경우
+                    match bool(data['path']), bool(data['removed_path']):
+                        case False, True:
+                            data['path'] = data['removed_path']
+                            data['action'] = 'delete'
+                            logger.debug(f'### TEST: {data}')
+                        case False, False:
+                            continue
                     for dispatcher in self.dispatcher_list:
                         # activity 발생 순서대로, dispatcher 배치 순서대로
                         await dispatcher.dispatch(data)

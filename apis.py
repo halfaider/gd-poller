@@ -8,7 +8,7 @@ import time
 import threading
 from typing import Optional
 
-from helpers import apply_cache, get_ttl_hash, request, parse_response, check_packages
+from helpers import apply_cache, get_ttl_hash, parse_response, check_packages, HelperSession
 
 check_packages([
     ('httplib2', 'httplib2'),
@@ -38,6 +38,7 @@ class Api:
         self._cache_enable = cache_enable
         self._cache_ttl = cache_ttl
         self._cache_maxsize = cache_maxsize
+        self._session = HelperSession()
 
     @property
     def url(self) -> str:
@@ -64,6 +65,10 @@ class Api:
     def cache_maxsize(self) -> int:
         return self._cache_maxsize
 
+    @property
+    def session(self) -> HelperSession:
+        return self._session
+
     def http_api(path: str, method: str = 'GET') -> callable:
         """
         api에 추가적인 데이터가 필요한 경우 딕셔너리 형태로 리턴
@@ -88,7 +93,7 @@ class Api:
                     }
                 }
 
-        params, data, headers는 requests 모듈의 request(parmas=params, data=data, headers=headers)로 전달 됨.
+        params, data, headers는 requests.session 모듈의 request(parmas=params, data=data, headers=headers)로 전달 됨.
         (method='json'일 경우 request(json=data)로 전달)
 
         api에 추가적인 데이터가 필요하지 않은 경우 리턴하지 않음
@@ -119,7 +124,7 @@ class Api:
         """
         def decorator(class_method: callable) -> callable:
             @functools.wraps(class_method)
-            def wrapper(self, *args: tuple, **kwds: dict) -> dict:
+            def wrapper(self: Api, *args: tuple, **kwds: dict) -> dict:
                 api: dict = class_method(self, *args, **kwds) or {}
                 self.adjust_api(api)
                 bound = inspect.signature(class_method).bind(self, *args, **kwds)
@@ -145,7 +150,7 @@ class Api:
                     'url': 'https://...',
                 }
                 '''
-                return parse_response(request(
+                return parse_response(self.session.request(
                     method,
                     url,
                     params=params,
