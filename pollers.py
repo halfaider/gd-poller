@@ -292,12 +292,14 @@ class ActivityPoller(GoogleDrivePoller):
                     elif data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
                         logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
                         data['removed_path'] = None
-                    # 경로 정보가 없을 경우
+                    # move된 경로를 접근할 수 없을 경우
                     match bool(data['path']), bool(data['removed_path']):
                         case False, True:
                             data['path'] = data['removed_path']
+                            data['removed_path'] = None
                             data['action'] = 'delete'
-                            logger.debug(f'### TEST: {data}')
+                            data['link'] = f'https://drive.google.com/drive/folders/{data["action_detail"][1].partition("/")[-1]}'
+                            data['action_detail'] = f'Moved but can not access: {data["target"][1]}'
                         case False, False:
                             continue
                     for dispatcher in self.dispatcher_list:
