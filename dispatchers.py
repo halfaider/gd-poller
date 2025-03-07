@@ -92,29 +92,25 @@ class DummyDispatcher(Dispatcher):
         logger.info(f'DummyDispatcher: {data}')
 
 
-class KavitaDispatcher(Dispatcher):
+class KavitaDispatcher(BufferedDispatcher):
 
-    def __init__(self, url: str = None, apikey: str = None, mappings: list = None) -> None:
-        super(KavitaDispatcher, self).__init__(mappings=mappings)
+    def __init__(self, url: str = None, apikey: str = None, mappings: list = None, interval: int = 30) -> None:
+        super(KavitaDispatcher, self).__init__(interval=interval, mappings=mappings)
         self.kavita = Kavita(url, apikey)
 
-    async def dispatch(self, data: dict) -> None:
+    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
-        parents = set()
-        target_path = pathlib.Path(self.get_mapping_path(data['path']))
-        target_path = str(target_path) if data.get('is_folder') else str(target_path.parent)
-        parents.add(target_path)
-        if data.get('removed_path'):
-            removed_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
-            removed_path = str(removed_path) if data.get('is_folder') else str(removed_path.parent)
-            parents.add(removed_path)
-        for p_ in parents:
-            result = self.kavita.api_library_scan_folder(p_)
-            logger.info(f'Kavita: scan_target="{p_}" status_code={result.get("status_code", 0)}')
-            if result.get('status_code', 0) == 401:
-                self.kavita.set_token()
-                result = self.kavita.api_library_scan_folder(p_)
-                logger.info(f'Kavita: scan_target="{p_}" status_code={result.get("status_code", 0)}')
+        logger.debug(item)
+        parent = pathlib.Path(item[0])
+        if await self.scan_folder(str(parent)) == 401:
+            self.kavita.set_token()
+            await self.scan_folder(str(parent))
+
+    async def scan_folder(self, path: str) -> int:
+        '''override'''
+        result = self.kavita.api_library_scan_folder(path)
+        logger.info(f'Kavita: scan_target="{path}" status_code={result.get("status_code", 0)}')
+        return result.get('status_code', 0)
 
 
 class FlaskfarmDispatcher(Dispatcher):

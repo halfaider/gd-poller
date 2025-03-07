@@ -94,14 +94,10 @@ class FolderBuffer:
 def request_json(func: callable) -> callable:
     @functools.wraps(func)
     def wrapper(*args, data: Optional[dict] = None, timeout: Union[int, tuple] = None, **kwds: dict) -> requests.Response:
-        if type(args[0]) is str:
-            method = 'POST' if args[0].upper() == 'JSON' else args[0]
-            args = (method, *args[1:])
-        else:
-            method = 'POST' if args[1].upper() == 'JSON' else args[1]
-            args = (args[0], method, *args[2:])
+        method = args[0] if type(args[0]) is str else args[1]
         try:
-            if method == 'JSON':
+            if method.upper() == 'JSON':
+                args = ('POST', *args[1:]) if type(args[0]) is str else (args[0], 'POST', *args[2:])
                 response = func(*args, json=data, timeout=timeout, **kwds)
             else:
                 response = func(*args, data=data, timeout=timeout, **kwds)
