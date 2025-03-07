@@ -102,9 +102,19 @@ class KavitaDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(item)
         parent = pathlib.Path(item[0])
-        if await self.scan_folder(str(parent)) == 401:
-            self.kavita.set_token()
-            await self.scan_folder(str(parent))
+        has_file = False
+        folders = []
+        for action_value in item[1].values():
+            for type_, name in action_value:
+                if type_ == 'file':
+                    has_file = True
+                else:
+                    folders.append((str(parent / name)))
+        for target in [str(parent)] if has_file else folders:
+            kavita_path = self.get_mapping_path(target)
+            if await self.scan_folder(kavita_path) == 401:
+                self.kavita.set_token()
+                await self.scan_folder(kavita_path)
 
     async def scan_folder(self, path: str) -> int:
         '''override'''
