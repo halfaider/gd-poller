@@ -100,7 +100,7 @@ class KavitaDispatcher(BufferedDispatcher):
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
-        logger.debug(item)
+        logger.debug(f'Kavita buffer: {item}')
         parent = pathlib.Path(item[0])
         has_file = False
         folders = []
@@ -162,7 +162,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
-        logger.debug(item)
+        logger.debug(f'GDSTool buffer: {item}')
         parent = pathlib.Path(item[0])
         targets: list[tuple[str, str]] = []
         for action in item[1]:
@@ -268,13 +268,13 @@ class RcloneDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        if data.get('action', '') == 'delete':
+        if data.get('action') == 'delete':
             self.rclone.forget(data['path'], data['is_folder'])
             return
-        remote_path = pathlib.Path(self.get_mapping_path(data['path']))
-        self.rclone.refresh(str(remote_path) if data['is_folder'] else str(remote_path.parent))
         if data.get('removed_path'):
             self.rclone.forget(data['removed_path'], data['is_folder'])
+        remote_path = pathlib.Path(self.get_mapping_path(data['path']))
+        self.rclone.refresh(str(remote_path) if data['is_folder'] else str(remote_path.parent))
 
 
 class PlexDispatcher(Dispatcher):
@@ -304,13 +304,21 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
-        logger.debug(item)
+        logger.debug(f'PlexRclone buffer: {item}')
         parent = pathlib.Path(item[0])
-        deletes = item[1].pop('delete', set())
         for dispatcher in self.rclones:
-            for is_folder, name in deletes:
-                dispatcher.rclone.forget(str(parent / name), is_folder)
-            dispatcher.rclone.refresh(dispatcher.get_mapping_path(str(parent)))
+            for is_folder, name in item[1].get('delete', set()):
+                await dispatcher.dispatch({
+                    'action': 'delete',
+                    'path': str(parent / name),
+                    'is_folder': is_folder
+                })
+            await dispatcher.dispatch({
+                'path': str(parent),
+                'is_folder': True
+            })
+        if not self.plexes:
+            return
         has_file = False
         folders = []
         for action_value in item[1].values():
@@ -321,7 +329,10 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
                     folders.append((str(parent / name)))
         for dispatcher in self.plexes:
             for target in [str(parent)] if has_file else folders:
-                dispatcher.plex.scan(dispatcher.get_mapping_path(target))
+                await dispatcher.dispatch({
+                    'path': target,
+                    'is_folder': True
+                })
 
 
 class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):

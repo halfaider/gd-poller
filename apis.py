@@ -6,6 +6,7 @@ import functools
 import inspect
 import time
 import threading
+import html
 from typing import Optional
 
 from helpers import apply_cache, get_ttl_hash, parse_response, check_packages, HelperSession
@@ -21,6 +22,7 @@ from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2 import credentials
 from googleapiclient.discovery import build, Resource
 from googleapiclient.http import HttpRequest
+from googleapiclient import errors
 
 logger = logging.getLogger(__name__)
 
@@ -255,9 +257,10 @@ class GoogleDrive(Api):
                 supportsAllDrives=True,
             ).execute()
             #logger.debug(f'file={result}')
-        except:
-            logger.error(traceback.format_exc())
-            result = {'id': item_id, 'name': None}
+        except Exception as e:
+            self.handle_error(e)
+        if not result:
+            result = {'id': item_id, 'name': 'Not Applicable'}
         return result
 
     def get_files(self, query: str) -> dict:
@@ -267,6 +270,23 @@ class GoogleDrive(Api):
             includeItemsFromAllDrives=True,
         ).execute()
         return result
+
+    def handle_error(self, error: Exception) -> None:
+        try:
+            raise error
+        except errors.HttpError:
+            reason = error._get_reason()
+            match error.resp.status:
+                case 404:
+                    logger.error(f'Google: error=HttpError status_code=404 reason="{html.escape(reason.strip())}" url="{error.url}"')
+                    return
+        except:
+            lines = traceback.format_exc().splitlines()
+            for idx, line in enumerate(lines, start=1):
+                if idx >= len(lines):
+                    logger.error(html.escape(line))
+                else:
+                    logger.error(line)
 
 
 class Rclone(Api):

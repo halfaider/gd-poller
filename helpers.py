@@ -27,6 +27,10 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HEADERS = {
+    "User-Agent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+}
+
 
 @dataclass(order=True)
 class PrioritizedItem:
@@ -119,9 +123,7 @@ class HelperSession(requests.Session):
 
     def __init__(self, headers: dict = None, auth: tuple = None, proxies: dict = None) -> None:
         super(HelperSession, self).__init__()
-        self.headers.update({
-            "User-Agent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        })
+        self.headers.update(DEFAULT_HEADERS)
         if headers:
             self.headers.update(headers)
 

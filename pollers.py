@@ -5,7 +5,6 @@ import traceback
 import datetime
 import asyncio
 import re
-import html
 from typing import Any, Iterable
 
 import dispatchers
@@ -337,8 +336,7 @@ class ActivityPoller(GoogleDrivePoller):
                     try:
                         results = await await_sync(query.execute)
                     except Exception as e:
-                        logger.error(html.escape(traceback.format_exc()))
-                        #logger.error(html.escape(repr(e)))
+                        self.drive.handle_error(e)
                         logger.error(f'Polling failed: {ancestor=}')
                         break
                     if results.get('nextPageToken'):
