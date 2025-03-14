@@ -250,6 +250,7 @@ class GoogleDrive(Api):
 
     def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink', ttl_hash: int | float = 3600) -> dict:
         del ttl_hash
+        result = {'id': item_id, 'name': 'Not Applicable'}
         try:
             result = self.api_drive.files().get(
                 fileId=item_id,
@@ -259,8 +260,6 @@ class GoogleDrive(Api):
             #logger.debug(f'file={result}')
         except Exception as e:
             self.handle_error(e)
-        if not result:
-            result = {'id': item_id, 'name': 'Not Applicable'}
         return result
 
     def get_files(self, query: str) -> dict:
@@ -278,15 +277,15 @@ class GoogleDrive(Api):
             reason = error._get_reason()
             match error.resp.status:
                 case 404:
-                    logger.error(f'Google: error=HttpError status_code=404 reason="{html.escape(reason.strip())}" url="{error.url}"')
+                    logger.error(f'Google: error=HttpError status_code=404 reason="{html.escape(reason.strip())}" uri="{error.uri}"')
                     return
         except:
             lines = traceback.format_exc().splitlines()
             for idx, line in enumerate(lines, start=1):
-                if idx >= len(lines):
-                    logger.error(html.escape(line))
-                else:
+                if idx < len(lines):
                     logger.error(line)
+                else:
+                    logger.error(html.escape(line))
 
 
 class Rclone(Api):
