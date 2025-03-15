@@ -268,12 +268,13 @@ class RcloneDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
+        remote_path = pathlib.Path(self.get_mapping_path(data['path']))
         if data.get('action') == 'delete':
-            self.rclone.forget(data['path'], data['is_folder'])
+            self.rclone.forget(str(remote_path), data['is_folder'])
             return
         if data.get('removed_path'):
-            self.rclone.forget(data['removed_path'], data['is_folder'])
-        remote_path = pathlib.Path(self.get_mapping_path(data['path']))
+            removed_remote_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
+            self.rclone.forget(str(removed_remote_path), data['is_folder'])
         self.rclone.refresh(str(remote_path) if data['is_folder'] else str(remote_path.parent))
 
 

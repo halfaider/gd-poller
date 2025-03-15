@@ -279,17 +279,17 @@ class ActivityPoller(GoogleDrivePoller):
                     data['poller'] = self.name
                     # 패턴 체크
                     if not self.check_patterns(data['path'], self.patterns):
-                        logger.debug(f'Skipped: target={data["path"]} reason="Not match with patterns"')
+                        logger.debug(f'Skipped: target="{data["path"]}" reason="Not match with patterns"')
                         data['path'] = None
                     elif self.check_patterns(data['path'], self.ignore_patterns):
-                        logger.debug(f'Skipped: target={data["path"]} reason="Match with ignore patterns"')
+                        logger.debug(f'Skipped: target="{data["path"]}" reason="Match with ignore patterns"')
                         data['path'] = None
                     # removed_path 패턴 체크
                     if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
-                        logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Not match with patterns"')
+                        logger.debug(f'Skipped: removed_path="{data["removed_path"]}" reason="Not match with patterns"')
                         data['removed_path'] = None
                     elif data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
-                        logger.debug(f'Skipped: removed_path={data["removed_path"]} reason="Match with ignore patterns"')
+                        logger.debug(f'Skipped: removed_path="{data["removed_path"]}" reason="Match with ignore patterns"')
                         data['removed_path'] = None
                     # move된 경로를 접근할 수 없을 경우
                     match bool(data['path']), bool(data['removed_path']):
