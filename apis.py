@@ -229,16 +229,16 @@ class GoogleDrive(Api):
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
         else:
-            current_path = [(file['name'], file['id'])]
+            current_path = [(file.get('name'), file.get('id'))]
             break_conuter = 100
             while file.get('parents') and break_conuter > 0:
                 ttl_hash = get_ttl_hash(self.cache_ttl) if self.cache_enable else time.time()
                 file = self.get_file(file.get('parents')[0], ttl_hash=ttl_hash)
-                if root and file['id'] == ancestor_id:
+                if root and file.get('id') == ancestor_id:
                     current_path.append((root, ancestor_id))
                     break
                 else:
-                    current_path.append((file['name'], file['id']))
+                    current_path.append((file.get('name'), file.get('id')))
                 break_conuter -= 1
         if len(current_path[-1][1]) < 20:
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
@@ -250,7 +250,7 @@ class GoogleDrive(Api):
 
     def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink', ttl_hash: int | float = 3600) -> dict:
         del ttl_hash
-        result = {'id': item_id, 'name': 'Not Applicable'}
+        result = {'id': item_id}
         try:
             result = self.api_drive.files().get(
                 fileId=item_id,
