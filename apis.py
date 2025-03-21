@@ -366,19 +366,19 @@ class Rclone(Api):
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
         result = self.api_vfs_refresh(target.as_posix(), recursive).get('json', {})
-        logger.debug(f'Rclone: {result}')
+        logger.info(f'Rclone: {result}')
         if result.get('result', {}).get(target.as_posix()) == 'OK':
             return
         for parent in target.parents:
             result: dict[str, dict] = self.api_vfs_refresh(parent.as_posix(), recursive).get('json', {})
-            logger.debug(f'Rclone: {result}')
+            logger.info(f'Rclone: {result}')
             if result.get('result', {}).get(parent.as_posix()) == 'OK':
                 return
         logger.warning(f'Rclone: It has hit the top-level path.')
 
     def forget(self, local_path: str, is_directory: bool = False) -> None:
         result = self.api_vfs_forget(local_path, is_directory).get('json', {})
-        logger.debug(f'Rclone: {result}')
+        logger.info(f'Rclone: {result}')
 
 
 class Plex(Api):
@@ -429,7 +429,7 @@ class Plex(Api):
     def scan(self, path: str, force: bool = False, is_directory: bool = True) -> None:
         scan_target = path if is_directory else str(pathlib.Path(path).parent)
         section = self.get_section_by_path(scan_target) or -1
-        logger.debug(f'Plex: {scan_target=} {section=}')
+        logger.info(f'Plex: {scan_target=} {section=}')
         self.api_refresh(section, scan_target, force)
 
 

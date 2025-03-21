@@ -163,7 +163,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
         # ADD 처리
         for action in item[1]:
             if action not in self.ALLOWED_ACTIONS:
-                logger.warning(f'No applicable action: {action} in "{str(parent)}')
+                logger.warning(f'No applicable action: {action} in "{str(parent)}"')
                 continue
             info_files = []
             files = []
