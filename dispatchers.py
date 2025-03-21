@@ -132,41 +132,37 @@ class FlaskfarmDispatcher(Dispatcher):
 
 class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
 
-    ADD_ACTIONS = ('create', 'move', 'rename')
+    ALLOWED_ACTIONS = ('create', 'move', 'rename')
     INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
 
     def __init__(self, url: str, apikey: str, *args, mappings: list = None, interval: int = 30, **kwds) -> None:
         super(GDSToolDispatcher, self).__init__(url, apikey, *args, mappings=mappings, interval=interval, **kwds)
-
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
-        removed_path = pathlib.Path(data.get('removed_path')) if data.get('removed_path') else None
-        path = pathlib.Path(data['path'])
-        deletes = []
-        if removed_path and removed_path.suffix.lower() not in self.INFO_EXTENSIONS:
-            deletes.append(data['removed_path'])
-        if data.get('action', '') == 'delete' and path.suffix.lower() not in self.INFO_EXTENSIONS:
-            deletes.append(str(path))
-        elif data['action'] not in self.ADD_ACTIONS:
-            logger.warning(f'No applicable action: {data["action"]} on "{str(path)}"')
-        else:
-            if data['is_folder']:
-                self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(str(path)), 'ADD')
-            else:
-                self.folder_buffer.put(str(path), data['action'], data['is_folder'])
-        for idx, deleted in enumerate(deletes, start=1):
-            # plex_mate에서 파일 존재 여부 체크하기 때문에 각각 처리
-            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(deleted), 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE')
-            if idx < len(deletes):
-                await asyncio.sleep(1.0)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
         logger.debug(f'GDSTool buffer: {item}')
         parent = pathlib.Path(item[0])
         targets: list[tuple[str, str]] = []
+        # REMOVE 처리
+        deletes = item[1].pop('delete', set())
+        if deletes:
+            has_deleted_files = False
+            deleted_folders = []
+            for type_, name in deletes:
+                if type_ == 'file':
+                    has_deleted_files = True
+                    break
+                else:
+                    deleted_folders.append(str(parent / name))
+            if has_deleted_files:
+                for _, name in deletes:
+                    logger.debug(f'Skipped: {str(parent / name)} reason="Multiple items"')
+                targets.append((str(parent), 'REMOVE_FOLDER'))
+            else:
+                targets.extend(((folder, 'REMOVE_FOLDER') for folder in deleted_folders))
+        # ADD 처리
         for action in item[1]:
-            if action not in self.ADD_ACTIONS:
+            if action not in self.ALLOWED_ACTIONS:
                 logger.warning(f'No applicable action: {action} in "{str(parent)}')
                 continue
             info_files = []

@@ -274,18 +274,15 @@ class GoogleDrive(Api):
         try:
             raise error
         except errors.HttpError:
-            reason = error._get_reason()
-            match error.resp.status:
-                case 404:
-                    logger.error(f'Google: error=HttpError status_code=404 reason="{html.escape(reason.strip())}" uri="{error.uri}"')
-                    return
+            logger.error(f'Google: error=HttpError status_code={error.resp.status} reason="{html.escape(error._get_reason().strip())}" uri="{error.uri}"')
         except:
-            lines = traceback.format_exc().splitlines()
-            for idx, line in enumerate(lines, start=1):
-                if idx < len(lines):
-                    logger.error(line)
-                else:
-                    logger.error(html.escape(line))
+            logger.error(traceback.format_exc())
+            #lines = traceback.format_exc().splitlines()
+            #for idx, line in enumerate(lines, start=1):
+            #    if idx < len(lines):
+            #        logger.error(line)
+            #    else:
+            #        logger.error(html.escape(line))
 
 
 class Rclone(Api):
