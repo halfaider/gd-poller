@@ -181,7 +181,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
                 targets.append(target)
         for idx, target in enumerate(targets, start=1):
             self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target[0]), target[1])
-            if idx < len(item[1][action]):
+            if idx < len(targets):
                 await asyncio.sleep(1.0)
 
 
