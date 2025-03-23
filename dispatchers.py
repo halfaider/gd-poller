@@ -165,17 +165,17 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
             if action not in self.ALLOWED_ACTIONS:
                 logger.warning(f'No applicable action: {action} in "{str(parent)}"')
                 continue
-            info_files = []
-            files = []
-            for _, name in item[1][action]:
+            info_files: list[tuple[str, str, str]] = []
+            files: list[tuple[str, str, str]] = []
+            for type_, name in item[1][action]:
                 target: pathlib.Path = parent / name
                 if target.suffix.lower() in self.INFO_EXTENSIONS:
-                    info_files.append((str(target), 'REFRESH'))
+                    info_files.append((str(target), 'REFRESH', type_))
                 else:
-                    files.append((str(target), 'ADD'))
+                    files.append((str(target), 'ADD', type_))
             files.extend(info_files)
             for idx, target in enumerate(files, start=1):
-                if idx > 1:
+                if target[2] == 'file' and idx > 1:
                     logger.debug(f'Skipped: {target[0]} reason="Multiple items"')
                     continue
                 targets.append(target)
