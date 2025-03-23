@@ -303,12 +303,19 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(f'PlexRclone buffer: {item}')
         parent = pathlib.Path(item[0])
+        deleted_targets = []
+        for type_, name in item[1].get('delete', set()):
+            if type_ == 'file':
+                deleted_targets = [str(parent)]
+                break
+            else:
+                deleted_targets.append(str(parent / name))
         for dispatcher in self.rclones:
-            for is_folder, name in item[1].get('delete', set()):
+            for target in deleted_targets:
                 await dispatcher.dispatch({
                     'action': 'delete',
-                    'path': str(parent / name),
-                    'is_folder': is_folder
+                    'path': target,
+                    'is_folder': True
                 })
             await dispatcher.dispatch({
                 'path': str(parent),
@@ -316,16 +323,16 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
             })
         if not self.plexes:
             return
-        has_file = False
         folders = []
         for action_value in item[1].values():
             for type_, name in action_value:
                 if type_ == 'file':
-                    has_file = True
+                    folders = [str(parent)]
+                    break
                 else:
                     folders.append((str(parent / name)))
         for dispatcher in self.plexes:
-            for target in [str(parent)] if has_file else folders:
+            for target in folders:
                 await dispatcher.dispatch({
                     'path': target,
                     'is_folder': True
