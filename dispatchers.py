@@ -74,15 +74,20 @@ class BufferedDispatcher(Dispatcher):
     async def on_start(self) -> None:
         '''override'''
         while not self.stop_event.is_set():
-            while len(self.folder_buffer) > 0:
+            '''
+            처리중에 데이터가 계속 put되면 interval 의미가 없어짐
+            현재 버퍼 크기를 기준으로 데이터 처리량을 제한
+            '''
+            for _ in range(len(self.folder_buffer)):
+                if self.stop_event.is_set(): break
                 item: tuple[str, dict] = self.folder_buffer.pop()
                 try:
                     await self.buffered_dispatch(item)
                 except:
                     logger.error(traceback.format_exc())
             for _ in range(self.interval):
-                await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
+                await asyncio.sleep(1)
 
 
 class DummyDispatcher(Dispatcher):
