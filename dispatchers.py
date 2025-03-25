@@ -151,40 +151,40 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
         # REMOVE 처리
         deletes = item[1].pop('delete', set())
         if deletes:
-            has_deleted_files = False
-            deleted_folders = []
-            for type_, name in deletes:
-                if type_ == 'file':
-                    has_deleted_files = True
-                    break
-                else:
-                    deleted_folders.append(str(parent / name))
-            if has_deleted_files:
-                for _, name in deletes:
-                    logger.debug(f'Skipped: {str(parent / name)} reason="Multiple items"')
+            types, names = zip(*deletes, strict=True)
+            if 'file' in types and len(types) > 1:
                 targets.append((str(parent), 'REMOVE_FOLDER'))
+                for name in names:
+                    logger.debug(f'Skipped: {str(parent / name)} reason="Multiple items"')
             else:
-                targets.extend(((folder, 'REMOVE_FOLDER') for folder in deleted_folders))
+                for type_, name in deletes:
+                    targets.append((str(parent / name), 'REMOVE_FILE' if type_ == 'file' else 'REMOVE_FOLDER'))
         # ADD 처리
         for action in item[1]:
             if action not in self.ALLOWED_ACTIONS:
                 logger.warning(f'No applicable action: {action} in "{str(parent)}"')
                 continue
-            info_files: list[tuple[str, str, str]] = []
-            files: list[tuple[str, str, str]] = []
+            # files, folders, info_files 순서로 처리
+            files = []
+            folders = []
+            info_files = []
             for type_, name in item[1][action]:
-                target: pathlib.Path = parent / name
-                if target.suffix.lower() in self.INFO_EXTENSIONS:
-                    info_files.append((str(target), 'REFRESH', type_))
+                mode = 'ADD'
+                target = pathlib.Path(parent / name)
+                if type_ == 'file' and target.suffix.lower() in self.INFO_EXTENSIONS:
+                    bucket = info_files
+                    mode = 'REFRESH'
+                elif type_ == 'folder':
+                    bucket = folders
                 else:
-                    files.append((str(target), 'ADD', type_))
-            files.extend(info_files)
-            for idx, target in enumerate(files, start=1):
-                if target[2] == 'file' and idx > 1:
+                    bucket = files
+                bucket.append((str(target), mode))
+            for idx, target in enumerate(files + folders + info_files):
+                if idx > 0:
                     logger.debug(f'Skipped: {target[0]} reason="Multiple items"')
                     continue
                 targets.append(target)
-        for idx, target in enumerate(targets, start=1):
+        for target in targets:
             self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target[0]), target[1])
             await asyncio.sleep(1.0)
 
@@ -307,13 +307,11 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(f'PlexRclone buffer: {item}')
         parent = pathlib.Path(item[0])
-        deleted_targets = []
-        for type_, name in item[1].get('delete', set()):
-            if type_ == 'file':
-                deleted_targets = [str(parent)]
-                break
-            else:
-                deleted_targets.append(str(parent / name))
+        types, names = zip(*item[1].get('delete', set()), strict=True)
+        if 'file' in types and len(types) > 1:
+            deleted_targets = [str(parent)]
+        else:
+            deleted_targets = [str(parent / name) for name in names]
         for dispatcher in self.rclones:
             for target in deleted_targets:
                 await dispatcher.dispatch({
@@ -327,14 +325,12 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
             })
         if not self.plexes:
             return
-        folders = []
         for action_value in item[1].values():
-            for type_, name in action_value:
-                if type_ == 'file':
-                    folders = [str(parent)]
-                    break
-                else:
-                    folders.append((str(parent / name)))
+            types, names = zip(*action_value, strict=True)
+            if 'file' in types and len(types) > 1:
+                folders = [str(parent)]
+            else:
+                folders = [str(parent / name) for name in names]
         for dispatcher in self.plexes:
             for target in folders:
                 await dispatcher.dispatch({
