@@ -307,11 +307,15 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(f'PlexRclone buffer: {item}')
         parent = pathlib.Path(item[0])
-        types, names = zip(*item[1].get('delete', set()), strict=True)
-        if 'file' in types and len(types) > 1:
-            deleted_targets = [str(parent)]
+        deletes = item[1].get('delete', set())
+        if deletes:
+            types, names = zip(*deletes, strict=True)
+            if 'file' in types and len(types) > 1:
+                deleted_targets = [str(parent)]
+            else:
+                deleted_targets = [str(parent / name) for name in names]
         else:
-            deleted_targets = [str(parent / name) for name in names]
+            deleted_targets = []
         for dispatcher in self.rclones:
             for target in deleted_targets:
                 await dispatcher.dispatch({
