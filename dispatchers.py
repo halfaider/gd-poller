@@ -330,11 +330,11 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         if not self.plexes:
             return
         for action_value in item[1].values():
-            types, names = zip(*action_value, strict=True)
-            if 'file' in types and len(types) > 1:
+            types, _ = zip(*action_value, strict=True)
+            if 'file' in types:
                 folders = [str(parent)]
             else:
-                folders = [str(parent / name) for name in names]
+                folders = [str(parent / name) for type_, name in action_value if type_ == 'folder']
         for dispatcher in self.plexes:
             for target in folders:
                 await dispatcher.dispatch({
