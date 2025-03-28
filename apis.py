@@ -34,6 +34,7 @@ class Api:
     _cache_enable = False
     _cache_ttl = 600 # seconds
     _cache_maxsize = 64 # each
+    _last_executed_timestamp = time.time()
 
     def __init__(self, url: str = '', cache_enable: bool = False, cache_maxsize: int = 64, cache_ttl: int = 600) -> None:
         self.url = url.strip().strip('/')
@@ -71,7 +72,15 @@ class Api:
     def session(self) -> HelperSession:
         return self._session
 
-    def http_api(path: str, method: str = 'GET') -> callable:
+    @property
+    def last_executed_timestamp(self) -> float:
+        return self._last_executed_timestamp
+
+    @last_executed_timestamp.setter
+    def last_executed_timestamp(self, value: float) -> None:
+        self._last_executed_timestamp = value
+
+    def http_api(path: str, method: str = 'GET', interval: float = 0.0) -> callable:
         """
         api에 추가적인 데이터가 필요한 경우 딕셔너리 형태로 리턴
 
@@ -152,6 +161,7 @@ class Api:
                     'url': 'https://...',
                 }
                 '''
+                self.get_sleep_enough(interval)
                 return parse_response(self.session.request(
                     method,
                     url,
@@ -165,6 +175,13 @@ class Api:
 
     def adjust_api(self, api_data: dict) -> None:
         pass
+
+    def get_sleep_enough(self, interval: float) -> None:
+        sleep_time = interval - (time.time() - self.last_executed_timestamp)
+        if sleep_time > 0:
+            logger.debug(f'Sleep for {sleep_time} seconds to reach {interval} seconds...')
+            time.sleep(sleep_time)
+        self.last_executed_timestamp = time.time()
 
 
 class GoogleDrive(Api):
@@ -353,14 +370,12 @@ class Rclone(Api):
         return data
 
     def get_metadata_cache(self) -> tuple[int, int]:
-        result: dict = self.api_vfs_stats(self.vfs).get('json', {}).get("metadataCache")
-        if not result:
+        if not (result := self.api_vfs_stats(self.vfs).get('json', {}).get("metadataCache")):
             logger.error(f'Rclone: No metadata cache statistics, assumed 0...')
         return result.get('dirs', 0), result.get('files', 0)
 
     def is_file(self, remote_path: str) -> bool:
-        result: dict = self.api_operations_stat(remote_path, self.vfs).get('json', {})
-        item: dict = result.get('item', {})
+        item: dict = self.api_operations_stat(remote_path, self.vfs).get('json', {}).get('item', {})
         return item.get('IsDir', 'None').lower() == 'true'
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
@@ -377,8 +392,7 @@ class Rclone(Api):
         logger.warning(f'Rclone: It has hit the top-level path.')
 
     def forget(self, local_path: str, is_directory: bool = False) -> None:
-        result = self.api_vfs_forget(local_path, is_directory).get('json', {})
-        logger.info(f'Rclone: {result}')
+        logger.info(f'Rclone: {self.api_vfs_forget(local_path, is_directory).get('json', {})}')
 
 
 class Plex(Api):
@@ -493,7 +507,7 @@ class Discord(Api):
             'webhook_token': self.webhook_token,
         }
 
-    @Api.http_api('/webhooks/{webhook_id}/{webhook_token}', method='JSON')
+    @Api.http_api('/webhooks/{webhook_id}/{webhook_token}', method='JSON', interval=1.5)
     def api_webhook(self, username: str = 'Activity Poller', content: str = None, embeds: list[dict] = None) -> dict:
         data = {
             'username': username
@@ -513,7 +527,7 @@ class Flaskfarm(Api):
         super(Flaskfarm, self).__init__(url)
         self.apikey = apikey.strip()
 
-    @Api.http_api('/gds_tool/api/fp/broadcast')
+    @Api.http_api('/gds_tool/api/fp/broadcast', interval=1.5)
     def api_gds_tool_fp_broadcast(self, gds_path: str, scan_mode: str) -> dict:
         if not gds_path.startswith('/ROOT/GDRIVE'):
             raise Exception(f'The path must start with "/ROOT/GDRIVE/": {gds_path}')

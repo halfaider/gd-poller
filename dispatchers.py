@@ -5,6 +5,7 @@ import asyncio
 import traceback
 import subprocess
 import shlex
+import time
 
 from apis import Rclone, Plex, Kavita, Discord, Flaskfarm
 from helpers import FolderBuffer, parse_mappings, map_path, watch_process
@@ -65,8 +66,8 @@ class BufferedDispatcher(Dispatcher):
     async def dispatch(self, data: dict) -> None:
         '''override'''
         self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
-        if data.get('removed_path'):
-            self.folder_buffer.put(data['removed_path'], 'delete', data['is_folder'])
+        if removed_path := data.get('removed_path'):
+            self.folder_buffer.put(removed_path, 'delete', data['is_folder'])
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         logger.debug(item)
@@ -80,9 +81,8 @@ class BufferedDispatcher(Dispatcher):
             '''
             for _ in range(len(self.folder_buffer)):
                 if self.stop_event.is_set(): break
-                item: tuple[str, dict] = self.folder_buffer.pop()
                 try:
-                    await self.buffered_dispatch(item)
+                    await self.buffered_dispatch(self.folder_buffer.pop())
                 except:
                     logger.error(traceback.format_exc())
             for _ in range(self.interval):
@@ -107,15 +107,12 @@ class KavitaDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(f'Kavita buffer: {item}')
         parent = pathlib.Path(item[0])
-        has_file = False
-        folders = []
-        for action_value in item[1].values():
-            for type_, name in action_value:
-                if type_ == 'file':
-                    has_file = True
-                else:
-                    folders.append((str(parent / name)))
-        for target in [str(parent)] if has_file else folders:
+        types, names = zip(*item[1].values(), strict=True)
+        if 'file' in types:
+            folders = [str(parent)]
+        else:
+            folders = [str(parent / name) for name in names]
+        for target in folders:
             kavita_path = self.get_mapping_path(target)
             if await self.scan_folder(kavita_path) == 401:
                 self.kavita.set_token()
@@ -124,8 +121,9 @@ class KavitaDispatcher(BufferedDispatcher):
     async def scan_folder(self, path: str) -> int:
         '''override'''
         result = self.kavita.api_library_scan_folder(path)
-        logger.info(f'Kavita: scan_target="{path}" status_code={result.get("status_code", 0)}')
-        return result.get('status_code', 0)
+        status_code = result.get('status_code', 0)
+        logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
+        return status_code
 
 
 class FlaskfarmDispatcher(Dispatcher):
@@ -149,8 +147,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
         parent = pathlib.Path(item[0])
         targets: list[tuple[str, str]] = []
         # REMOVE 처리
-        deletes = item[1].pop('delete', set())
-        if deletes:
+        if deletes := item[1].pop('delete', set()):
             types, names = zip(*deletes, strict=True)
             if 'file' in types and len(types) > 1:
                 targets.append((str(parent), 'REMOVE_FOLDER'))
@@ -186,7 +183,8 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
                 targets.append(target)
         for target in targets:
             self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target[0]), target[1])
-            await asyncio.sleep(1.0)
+
+
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
@@ -195,8 +193,7 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
         '''override'''
         scan_targets = []
         target_path = self.get_mapping_path(data['path'])
-        tp = pathlib.Path(target_path)
-        if tp.suffix.lower() in ['.json', '.yaml', '.yml']:
+        if pathlib.Path(target_path).suffix.lower() in ['.json', '.yaml', '.yml']:
             mode = 'REFRESH'
         else:
             if data['action'] == 'delete':
@@ -204,17 +201,16 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
             else:
                 mode = 'ADD'
         scan_targets.append((target_path, mode))
-        if data.get('removed_path'):
+        if removed := data.get('removed_path'):
             mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
-            removed_path = self.get_mapping_path(data['removed_path'])
-            scan_targets.append((removed_path, mode))
+            scan_targets.append((self.get_mapping_path(removed), mode))
         for st in scan_targets:
             logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(st[0], mode=st[1])}')
 
 
 class DiscordDispatcher(Dispatcher):
 
-    colors = {
+    COLORS = {
         'default': '0',
         'move': '3447003',
         'create': '5763719',
@@ -232,14 +228,13 @@ class DiscordDispatcher(Dispatcher):
         ) -> None:
         super(DiscordDispatcher, self).__init__(mappings=mappings)
         if colors:
-            for action in colors:
-                self.colors[action] = colors[action]
+            self.COLORS.update(colors)
         self.discord = Discord(url, webhook_id, webhook_token)
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
         embed = {
-            'color': self.colors.get(data['action'], self.colors['default']),
+            'color': self.COLORS.get(data['action'], self.COLORS['default']),
             'author': {
                 'name': data['poller'],
             },
@@ -272,8 +267,8 @@ class RcloneDispatcher(Dispatcher):
         if data.get('action') == 'delete':
             self.rclone.forget(str(remote_path), data['is_folder'])
             return
-        if data.get('removed_path'):
-            removed_remote_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
+        if removed_path := data.get('removed_path'):
+            removed_remote_path = pathlib.Path(self.get_mapping_path(removed_path))
             self.rclone.forget(str(removed_remote_path), data['is_folder'])
         self.rclone.refresh(str(remote_path) if data['is_folder'] else str(remote_path.parent))
 
@@ -289,8 +284,8 @@ class PlexDispatcher(Dispatcher):
         targets = set()
         plex_path = pathlib.Path(self.get_mapping_path(data['path']))
         targets.add(str(plex_path) if data['is_folder'] else str(plex_path.parent))
-        if data.get('removed_path'):
-            removed_plex_path = pathlib.Path(self.get_mapping_path(data['removed_path']))
+        if removed_path := data.get('removed_path'):
+            removed_plex_path = pathlib.Path(self.get_mapping_path(removed_path))
             targets.add(str(removed_plex_path) if data['is_folder'] else str(removed_plex_path.parent))
         for p_ in targets:
             self.plex.scan(p_, is_directory=True)
@@ -300,15 +295,14 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
 
     def __init__(self, interval: int = 30, rclones: list = [], plexes: list = []) -> None:
         super(MultiPlexRcloneDispatcher, self).__init__(interval=interval)
-        self.rclones = [RcloneDispatcher(**rclone) for rclone in rclones]
-        self.plexes = [PlexDispatcher(**plex) for plex in plexes]
+        self.rclones = (RcloneDispatcher(**rclone) for rclone in rclones)
+        self.plexes = (PlexDispatcher(**plex) for plex in plexes)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
         logger.debug(f'PlexRclone buffer: {item}')
         parent = pathlib.Path(item[0])
-        deletes = item[1].get('delete', set())
-        if deletes:
+        if self.rclones and (deletes := item[1].get('delete', set())):
             types, names = zip(*deletes, strict=True)
             if 'file' in types and len(types) > 1:
                 deleted_targets = [str(parent)]
@@ -330,11 +324,11 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         if not self.plexes:
             return
         for action_value in item[1].values():
-            types, _ = zip(*action_value, strict=True)
+            types, names = zip(*action_value, strict=True)
             if 'file' in types:
                 folders = [str(parent)]
             else:
-                folders = [str(parent / name) for type_, name in action_value if type_ == 'folder']
+                folders = [str(parent / name) for name in names]
         for dispatcher in self.plexes:
             for target in folders:
                 await dispatcher.dispatch({
@@ -379,8 +373,8 @@ class CommandDispatcher(Dispatcher):
         cmd_parts.append(data['action'])
         cmd_parts.append('directory' if data['is_folder'] else 'file')
         cmd_parts.append(self.get_mapping_path(data['path']))
-        if data.get('removed_path'):
-            cmd_parts.append(self.get_mapping_path(data['removed_path']))
+        if removed_path := data.get('removed_path'):
+            cmd_parts.append(self.get_mapping_path(removed_path))
         logger.info(f'Command: {cmd_parts}')
 
         process = subprocess.Popen(cmd_parts)
