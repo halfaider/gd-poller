@@ -179,7 +179,7 @@ class Api:
     def get_sleep_enough(self, interval: float) -> None:
         sleep_time = interval - (time.time() - self.last_executed_timestamp)
         if sleep_time > 0:
-            logger.debug(f'Sleep for {sleep_time} seconds to reach {interval} seconds...')
+            logger.debug(f'Sleep for {sleep_time} seconds to complete a {interval}-second interval...')
             time.sleep(sleep_time)
         self.last_executed_timestamp = time.time()
 
