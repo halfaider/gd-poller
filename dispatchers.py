@@ -270,7 +270,9 @@ class RcloneDispatcher(Dispatcher):
         if removed_path := data.get('removed_path'):
             removed_remote_path = pathlib.Path(self.get_mapping_path(removed_path))
             self.rclone.forget(str(removed_remote_path), data['is_folder'])
-        self.rclone.refresh(str(remote_path) if data['is_folder'] else str(remote_path.parent))
+        target_path = str(remote_path) if data['is_folder'] else str(remote_path.parent)
+        self.rclone.forget(target_path, True)
+        self.rclone.refresh(target_path)
 
 
 class PlexDispatcher(Dispatcher):
