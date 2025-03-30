@@ -380,19 +380,19 @@ class Rclone(Api):
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
+        for parent in target.parents:
+            result = self.api_vfs_refresh(parent.as_posix()).get('json', {})
+            logger.info(f'Rclone: {result}')
+            if result.get('result', {}).get(parent.as_posix(), '').lower() == 'ok':
+                break
+        else:
+            logger.error(f'It has hit the root path: {str(target)}')
+            return
         result = self.api_vfs_refresh(target.as_posix(), recursive).get('json', {})
         logger.info(f'Rclone: {result}')
-        if result.get('result', {}).get(target.as_posix()) == 'OK':
-            return
-        for parent in target.parents:
-            result: dict[str, dict] = self.api_vfs_refresh(parent.as_posix(), recursive).get('json', {})
-            logger.info(f'Rclone: {result}')
-            if result.get('result', {}).get(parent.as_posix()) == 'OK':
-                return
-        logger.warning(f'Rclone: It has hit the top-level path.')
 
-    def forget(self, local_path: str, is_directory: bool = False) -> None:
-        logger.info(f'Rclone: {self.api_vfs_forget(local_path, is_directory).get("json", {})}')
+    def forget(self, remote_path: str, is_directory: bool = False) -> None:
+        logger.info(f'Rclone: {self.api_vfs_forget(remote_path, is_directory).get("json", {})}')
 
 
 class Plex(Api):
