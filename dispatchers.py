@@ -107,7 +107,7 @@ class KavitaDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(f'Kavita buffer: {item}')
         parent = pathlib.Path(item[0])
-        types, names = zip(*item[1].values(), strict=True)
+        types, names = zip(*[each for values in item[1].values() for each in values], strict=True)
         if 'file' in types:
             folders = [str(parent)]
         else:
@@ -325,12 +325,11 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
             })
         if not self.plexes:
             return
-        for action_value in item[1].values():
-            types, names = zip(*action_value, strict=True)
-            if 'file' in types:
-                folders = [str(parent)]
-            else:
-                folders = [str(parent / name) for name in names]
+        types, names = zip(*[each for values in item[1].values() for each in values], strict=True)
+        if 'file' in types:
+            folders = [str(parent)]
+        else:
+            folders = [str(parent / name) for name in names]
         for dispatcher in self.plexes:
             for target in folders:
                 await dispatcher.dispatch({
