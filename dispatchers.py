@@ -65,9 +65,9 @@ class BufferedDispatcher(Dispatcher):
 
     async def dispatch(self, data: dict) -> None:
         '''override'''
-        self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
         if removed_path := data.get('removed_path'):
             self.folder_buffer.put(removed_path, 'delete', data['is_folder'])
+        self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         logger.debug(item)
