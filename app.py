@@ -4,11 +4,12 @@ import datetime
 import logging
 import pathlib
 import asyncio
+import time
 
 import dispatchers
 from apis import GoogleDrive
 from pollers import ActivityPoller
-from helpers import RedactedFormatter, check_packages, stop_event_loop
+from helpers import RedactedFormatter, check_packages, check_tasks
 
 check_packages([
     ('yaml', 'pyyaml'),
@@ -94,8 +95,10 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         for poller in config['pollers']:
             dispatcher_list = []
             for dispatcher in poller.get('dispatchers', [{'class': 'DummyDispatcher'}]):
-                class_ = getattr(dispatchers, dispatcher.pop('class'))
-                dispatcher_list.append(class_(**dispatcher))
+                # yaml의 앵커는 동일한 객체를 참조
+                dispatcher_ = dispatcher.copy()
+                class_ = getattr(dispatchers, dispatcher_.pop('class'))
+                dispatcher_list.append(class_(**dispatcher_))
             activity_poller = ActivityPoller(
                 drive,
                 poller['targets'],
@@ -111,10 +114,9 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
             pollers.append(activity_poller)
         for poller in pollers:
             tasks.append(asyncio.create_task(poller.start(), name=poller.name))
+        check_task = asyncio.create_task(check_tasks(tasks), name='check_tasks')
         try:
-            await asyncio.gather(*tasks)
-            while True:
-                await asyncio.sleep(1)
+            await asyncio.gather(check_task, *tasks)
         except asyncio.CancelledError:
             logger.warning(f'Tasks are cancelled: {__name__}')
     except:

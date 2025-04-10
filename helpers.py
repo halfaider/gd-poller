@@ -222,3 +222,24 @@ async def watch_process(process: subprocess.Popen, stop_flag: threading.Event, t
             process.kill()
     except:
         logger.error(traceback.format_exc())
+
+
+async def check_tasks(tasks: list) -> None:
+    check_timestamp = time.time()
+    while True:
+        current_timestamp = time.time()
+        check = current_timestamp - check_timestamp > 3600
+        if check:
+            check_timestamp = current_timestamp
+        for task in list(tasks):
+            if task.done():
+                print(f'The task is done: "{task.get_name()}"')
+                tasks.remove(task)
+                if exception := task.exception():
+                    print(f'{task.get_name()}: {exception} stack="{task.print_stack()}"')
+            else:
+                if check:
+                    print(f'The task is still running: {task.get_name()}')
+        if not tasks:
+            break
+        await asyncio.sleep(1)

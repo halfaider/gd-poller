@@ -1,8 +1,7 @@
 __pycache__
 /instance
-nohup.out
-config.yaml
-config.test.yaml
+config*.yaml
+!config.sample.yaml
 README.html
 /test
-gd-test.py
+test*.py

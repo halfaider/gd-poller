@@ -5,6 +5,8 @@ import traceback
 import datetime
 import asyncio
 import re
+import time
+import random
 from typing import Any, Iterable
 
 import dispatchers
@@ -319,10 +321,14 @@ class ActivityPoller(GoogleDrivePoller):
         logger.info(f'Dispatching task ends: {self.name}')
 
     async def poll(self, ancestor: str) -> None:
-        ancestor_id, _, _ = ancestor.partition('#')
+        ancestor_id, _, root = ancestor.partition('#')
         next_page_token = None
         # 구글 응답에 맞춰서 UTC
         last_activity_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)
+        # Time is the problem....
+        last_no_activity_timestamp = time.time()
+        no_activity_interval = 3600
+        no_activity_allowance = min(self.polling_interval, 60)
         logger.info(f'Polling task starts: {ancestor}')
         while not self.stop_event.is_set():
             while not self.stop_event.is_set():
@@ -339,26 +345,28 @@ class ActivityPoller(GoogleDrivePoller):
                         self.drive.handle_error(e)
                         logger.error(f'Polling failed: {ancestor=}')
                         break
-                    if results.get('nextPageToken'):
-                        next_page_token = results.get('nextPageToken')
+                    next_page_token = results.get('nextPageToken')
                     activities = results.get('activities', [])
                     if not activities:
-                        #logger.debug(F'No activity in {ancestor} since {last_activity_timestamp}')
+                        current_timestamp = time.time()
+                        if current_timestamp - last_no_activity_timestamp > no_activity_interval + random.randint(-no_activity_allowance, no_activity_allowance):
+                            logger.debug(F'No activity in "{root or ancestor}" since {last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
+                            last_no_activity_timestamp = current_timestamp
                         break
+                    last_activity_timestamp_ = last_activity_timestamp
                     for activity in activities:
-                        data = {'ancestor': ancestor}
-                        #logger.debug(f'{activity["primaryActionDetail"]=}')
-                        #logger.debug(f'{activity["actions"]=}')
-                        #logger.debug(f'{activity["targets"]=}')
-                        timestamp = self.getTimeInfo(activity)
-                        timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'
-                        data['timestamp'] = datetime.datetime.strptime(timestamp, timestmap_format)
-                        if data['timestamp'] > last_activity_timestamp:
-                            last_activity_timestamp = data['timestamp']
-                        data['action'], data['action_detail'] = self.getActionInfo(activity['primaryActionDetail'])
-                        data['target'] = next(map(self.getTargetInfo, activity['targets']))
+                        data = self.get_activity(activity)
+                        data['ancestor'] = ancestor
                         logger.debug(f"{data['action']}, {data['target']}")
                         self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
+                        if data['timestamp'] > last_activity_timestamp:
+                            if data['timestamp'] > datetime.datetime.now().astimezone(datetime.timezone.utc):
+                                logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
+                            else:
+                                last_activity_timestamp = data['timestamp']
+                    if activities and last_activity_timestamp_ == last_activity_timestamp:
+                        logger.warning('Last activity timestamp is not updated.')
+                        last_activity_timestamp += datetime.timedelta(seconds=1)
                     if not next_page_token:
                         break
                 except Exception as e:
@@ -369,6 +377,19 @@ class ActivityPoller(GoogleDrivePoller):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
         logger.info(f'Polling task ends: {ancestor}')
+
+    def get_activity(self, activity: dict) -> dict:
+            #logger.debug(f'{activity["primaryActionDetail"]=}')
+            #logger.debug(f'{activity["actions"]=}')
+            #logger.debug(f'{activity["targets"]=}')
+            timestamp = self.getTimeInfo(activity)
+            timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'
+            data = {
+                'timestamp': datetime.datetime.strptime(timestamp, timestmap_format),
+                'target': next(map(self.getTargetInfo, activity['targets'])),
+            }
+            data['action'], data['action_detail'] = self.getActionInfo(activity['primaryActionDetail'])
+            return data
 
     def get_move_from(self, action_detail: dict) -> str:
         removed_parents = action_detail['move'].get('removedParents', [{}])
