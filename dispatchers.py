@@ -153,7 +153,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
         parent = pathlib.Path(item[0])
         targets: list[tuple[str, str]] = []
         # REMOVE 처리
-        if deletes := item[1].pop('delete'):
+        if deletes := item[1].pop('delete', None):
             types, names = zip(*deletes, strict=True)
             if 'file' in types and len(types) > 1:
                 targets.append((str(parent), 'REMOVE_FOLDER'))
