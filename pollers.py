@@ -360,47 +360,48 @@ class ActivityPoller(GoogleDrivePoller):
     async def _poll(self, ancestor: str, activity_api: callable) -> None:
         ancestor_id, _, root = ancestor.partition('#')
         next_page_token = None
-        try:
-            query = activity_api.query(body={
-                'pageSize': self.page_size,
-                'ancestorName': f'items/{ancestor_id}',
-                'pageToken': next_page_token,
-                'filter': f'time > "{self.last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
-            })
+        while not self.stop_event.is_set():
             try:
-                results = await await_sync(query.execute)
+                query = activity_api.query(body={
+                    'pageSize': self.page_size,
+                    'ancestorName': f'items/{ancestor_id}',
+                    'pageToken': next_page_token,
+                    'filter': f'time > "{self.last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
+                })
+                try:
+                    results = await await_sync(query.execute)
+                except Exception as e:
+                    self.drive.handle_error(e)
+                    logger.error(f'Polling failed: {ancestor=}')
+                    break
+                next_page_token = results.get('nextPageToken')
+                activities = results.get('activities', [])
+                if not activities:
+                    current_timestamp = time.time()
+                    if current_timestamp - self.last_no_activity_timestamp > self.task_check_interval:
+                        logger.debug(F'No activity in "{root or ancestor}" since {self.last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
+                        self.last_no_activity_timestamp = current_timestamp
+                    break
+                last_timestamp = self.last_activity_timestamp
+                logger.debug(f'Last activity timestamp: {self.last_activity_timestamp}')
+                for activity in activities:
+                    data = self.get_activity(activity)
+                    data['ancestor'] = ancestor
+                    logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']}")
+                    self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
+                    if data['timestamp'] > self.last_activity_timestamp:
+                        if data['timestamp'] > datetime.datetime.now().astimezone(datetime.timezone.utc):
+                            logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
+                        else:
+                            self.last_activity_timestamp = data['timestamp']
+                if activities and last_timestamp == self.last_activity_timestamp:
+                    logger.warning('Last activity timestamp is not updated.')
+                    #self.last_activity_timestamp += datetime.timedelta(seconds=1)
+                if not next_page_token:
+                    break
             except Exception as e:
-                self.drive.handle_error(e)
-                logger.error(f'Polling failed: {ancestor=}')
-                return
-            next_page_token = results.get('nextPageToken')
-            activities = results.get('activities', [])
-            if not activities:
-                current_timestamp = time.time()
-                if current_timestamp - self.last_no_activity_timestamp > self.task_check_interval:
-                    logger.debug(F'No activity in "{root or ancestor}" since {self.last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
-                    self.last_no_activity_timestamp = current_timestamp
-                return
-            last_activity_timestamp_ = self.last_activity_timestamp
-            for activity in activities:
-                data = self.get_activity(activity)
-                data['ancestor'] = ancestor
-                logger.debug(f"{data['action']}, {data['target']}")
-                self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
-                if data['timestamp'] > self.last_activity_timestamp:
-                    if data['timestamp'] > datetime.datetime.now().astimezone(datetime.timezone.utc):
-                        logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
-                    else:
-                        self.last_activity_timestamp = data['timestamp']
-            if activities and last_activity_timestamp_ == self.last_activity_timestamp:
-                logger.warning('Last activity timestamp is not updated.')
-                self.last_activity_timestamp += datetime.timedelta(seconds=1)
-            if not next_page_token:
-                return
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.error(f'{ancestor=}')
-            return
+                logger.error(traceback.format_exc())
+                logger.error(f'{ancestor=}')
 
     def get_activity(self, activity: dict) -> dict:
             #logger.debug(f'{activity["primaryActionDetail"]=}')
