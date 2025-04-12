@@ -5,7 +5,6 @@ import asyncio
 import traceback
 import subprocess
 import shlex
-import time
 
 from apis import Rclone, Plex, Kavita, Discord, Flaskfarm
 from helpers import FolderBuffer, parse_mappings, map_path, watch_process
@@ -15,9 +14,10 @@ logger = logging.getLogger(__name__)
 
 class Dispatcher:
 
-    def __init__(self, mappings: list = None) -> None:
+    def __init__(self, *, mappings: list = None, buffer_interval: int = 30) -> None:
         self.stop_event = threading.Event()
         self.mappings = parse_mappings(mappings) if mappings else None
+        self.buffer_interval = buffer_interval
 
     async def start(self) -> None:
         if self.stop_event.is_set():
@@ -58,9 +58,8 @@ class Dispatcher:
 
 class BufferedDispatcher(Dispatcher):
 
-    def __init__(self, *args, interval: int = 30, **kwds) -> None:
-        super(BufferedDispatcher, self).__init__(*args, **kwds)
-        self.interval = interval
+    def __init__(self, **kwds) -> None:
+        super(BufferedDispatcher, self).__init__(**kwds)
         self.folder_buffer = FolderBuffer()
 
     async def dispatch(self, data: dict) -> None:
@@ -85,7 +84,7 @@ class BufferedDispatcher(Dispatcher):
                     await self.buffered_dispatch(self.folder_buffer.pop())
                 except:
                     logger.error(traceback.format_exc())
-            for _ in range(self.interval):
+            for _ in range(self.buffer_interval):
                 if self.stop_event.is_set(): break
                 await asyncio.sleep(1)
 
@@ -99,8 +98,8 @@ class DummyDispatcher(Dispatcher):
 
 class KavitaDispatcher(BufferedDispatcher):
 
-    def __init__(self, url: str = None, apikey: str = None, mappings: list = None, interval: int = 30) -> None:
-        super(KavitaDispatcher, self).__init__(interval=interval, mappings=mappings)
+    def __init__(self, url: str = None, apikey: str = None, **kwds) -> None:
+        super(KavitaDispatcher, self).__init__(**kwds)
         self.kavita = Kavita(url, apikey)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
@@ -114,22 +113,29 @@ class KavitaDispatcher(BufferedDispatcher):
             folders = [str(parent / name) for name in names]
         for target in folders:
             kavita_path = self.get_mapping_path(target)
-            if await self.scan_folder(kavita_path) == 401:
-                self.kavita.set_token()
-                await self.scan_folder(kavita_path)
+            for _ in range(5):
+                if (status := await self.scan_folder(kavita_path)) == 401:
+                    self.kavita.set_token()
+                else:
+                    if not 300 > status > 199:
+                        logger.warning(f'Kavita: Returned status {status} for "{kavita_path}"')
+                    break
+            else:
+                logger.error(f'Kavita: Failed to login after 5 times...')
+                break
 
     async def scan_folder(self, path: str) -> int:
         '''override'''
         result = self.kavita.api_library_scan_folder(path)
-        status_code = result.get('status_code', 0)
+        status_code = result.get('status_code')
         logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
         return status_code
 
 
 class FlaskfarmDispatcher(Dispatcher):
 
-    def __init__(self, url: str, apikey: str, *args, mappings: list = None, **kwds) -> None:
-        super(FlaskfarmDispatcher, self).__init__(*args, mappings=mappings, **kwds)
+    def __init__(self, url: str, apikey: str, **kwds) -> None:
+        super(FlaskfarmDispatcher, self).__init__(**kwds)
         self.flaskfarm = Flaskfarm(url, apikey)
 
 
@@ -138,8 +144,8 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
     ALLOWED_ACTIONS = ('create', 'move', 'rename')
     INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
 
-    def __init__(self, url: str, apikey: str, *args, mappings: list = None, interval: int = 30, **kwds) -> None:
-        super(GDSToolDispatcher, self).__init__(url, apikey, *args, mappings=mappings, interval=interval, **kwds)
+    def __init__(self, url: str, apikey: str, **kwds) -> None:
+        super(GDSToolDispatcher, self).__init__(url, apikey, **kwds)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
@@ -147,7 +153,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
         parent = pathlib.Path(item[0])
         targets: list[tuple[str, str]] = []
         # REMOVE 처리
-        if deletes := item[1].pop('delete', set()):
+        if deletes := item[1].pop('delete'):
             types, names = zip(*deletes, strict=True)
             if 'file' in types and len(types) > 1:
                 targets.append((str(parent), 'REMOVE_FOLDER'))
@@ -217,6 +223,7 @@ class DiscordDispatcher(Dispatcher):
         'delete': '15548997',
         'edit': '16776960'
     }
+    MAX_FIELD_LEN = 1024
 
     def __init__(
             self,
@@ -224,9 +231,9 @@ class DiscordDispatcher(Dispatcher):
             webhook_id: str = None,
             webhook_token: str = None,
             colors: dict = None,
-            mappings: list = None
+            **kwds
         ) -> None:
-        super(DiscordDispatcher, self).__init__(mappings=mappings)
+        super(DiscordDispatcher, self).__init__(**kwds)
         if colors:
             self.COLORS.update(colors)
         self.discord = Discord(url, webhook_id, webhook_token)
@@ -242,23 +249,28 @@ class DiscordDispatcher(Dispatcher):
             'description': f'# {data["action"].upper()}',
             'fields': []
         }
-        embed['fields'].append({'name': 'Path', 'value': data['path']})
+        embed['fields'].append({'name': 'Path', 'value': self.get_truncated(data['path'])})
         if data['action'] == 'move':
-            embed['fields'].append({'name': 'From', 'value': data['removed_path'] if data['removed_path'] else f'unknown'})
+            embed['fields'].append({'name': 'From', 'value': self.get_truncated(data['removed_path'] if data['removed_path'] else 'unknown')})
         elif data.get('action_detail') and type(data.get('action_detail')) in (str, int):
-            embed['fields'].append({'name': 'Details', 'value': data["action_detail"]})
-        embed['fields'].append({'name': 'ID', 'value': data['target'][1]})
-        embed['fields'].append({'name': 'MIME', 'value': data['target'][2]})
-        embed['fields'].append({'name': 'Link', 'value': data['link']})
-        embed['fields'].append({'name': 'Occurred at', 'value': data['timestamp']})
+            embed['fields'].append({'name': 'Details', 'value': self.get_truncated(data["action_detail"])})
+        embed['fields'].append({'name': 'ID', 'value': self.get_truncated(data['target'][1])})
+        embed['fields'].append({'name': 'MIME', 'value': self.get_truncated(data['target'][2])})
+        embed['fields'].append({'name': 'Link', 'value': self.get_truncated(data['link'])})
+        embed['fields'].append({'name': 'Occurred at', 'value': self.get_truncated(data['timestamp'])})
         result = self.discord.api_webhook(embeds=[embed])
-        logger.info(f"Discord: target=\"{data['target'][0]}\" status_code={result.get('status_code', 0)}")
+        logger.info(f"Discord: target=\"{data['target'][0]}\" status_code={result.get('status_code')}")
+
+    def get_truncated(self, content: str) -> str:
+        if len(content) > self.MAX_FIELD_LEN:
+            content = content[:self.MAX_FIELD_LEN - 3] + '...'
+        return content
 
 
 class RcloneDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, mappings: list = None) -> None:
-        super(RcloneDispatcher, self).__init__(mappings=mappings)
+    def __init__(self, url: str = None, **kwds) -> None:
+        super(RcloneDispatcher, self).__init__(**kwds)
         self.rclone = Rclone(url)
 
     async def dispatch(self, data: dict) -> None:
@@ -277,8 +289,8 @@ class RcloneDispatcher(Dispatcher):
 
 class PlexDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, token: str = None, mappings: list = None) -> None:
-        super(PlexDispatcher, self).__init__(mappings=mappings)
+    def __init__(self, url: str = None, token: str = None, **kwds) -> None:
+        super(PlexDispatcher, self).__init__(**kwds)
         self.plex = Plex(url, token)
 
     async def dispatch(self, data: dict) -> None:
@@ -295,16 +307,16 @@ class PlexDispatcher(Dispatcher):
 
 class MultiPlexRcloneDispatcher(BufferedDispatcher):
 
-    def __init__(self, interval: int = 30, rclones: list = [], plexes: list = []) -> None:
-        super(MultiPlexRcloneDispatcher, self).__init__(interval=interval)
-        self.rclones = (RcloneDispatcher(**rclone) for rclone in rclones)
-        self.plexes = (PlexDispatcher(**plex) for plex in plexes)
+    def __init__(self, rclones: list = [], plexes: list = [], **kwds) -> None:
+        super(MultiPlexRcloneDispatcher, self).__init__(**kwds)
+        self.rclones = [RcloneDispatcher(**rclone) for rclone in rclones]
+        self.plexes = [PlexDispatcher(**plex) for plex in plexes]
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
         logger.debug(f'PlexRclone buffer: {item}')
         parent = pathlib.Path(item[0])
-        if self.rclones and (deletes := item[1].get('delete', set())):
+        if self.rclones and (deletes := item[1].get('delete')):
             types, names = zip(*deletes, strict=True)
             if 'file' in types and len(types) > 1:
                 deleted_targets = [str(parent)]
@@ -341,7 +353,7 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
 class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
     '''DEPRECATED'''
 
-    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, interval: int = 30, plex_mappings: list = None) -> None:
+    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, plex_mappings: list = None, **kwds) -> None:
         rclones = [{
             'url': url,
             'mappings': mappings
@@ -351,13 +363,13 @@ class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
             'token': plex_token,
             'mappings': plex_mappings
         }]
-        super(PlexRcloneDispatcher, self).__init__(interval, rclones, plexes)
+        super(PlexRcloneDispatcher, self).__init__(rclones=rclones, plexes=plexes, **kwds)
 
 
 class CommandDispatcher(Dispatcher):
 
-    def __init__(self, command: str, wait_for_process: bool = False, drop_during_process = False, timeout: int = 300, mappings: list = None) -> None:
-        super(CommandDispatcher, self).__init__(mappings=mappings)
+    def __init__(self, command: str, wait_for_process: bool = False, drop_during_process = False, timeout: int = 300, **kwds) -> None:
+        super(CommandDispatcher, self).__init__(**kwds)
         self.command = command
         self.wait_for_process = wait_for_process
         self.drop_during_process = drop_during_process

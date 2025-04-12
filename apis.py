@@ -5,7 +5,6 @@ import urllib.parse
 import functools
 import inspect
 import time
-import threading
 import html
 from typing import Optional
 
@@ -89,7 +88,7 @@ class Api:
                 return {
                     'params': {
                         'a': param1,
-                        'b': parma2,
+                        'b': param2,
                     },
                     'data': {
                         'c': data1,
@@ -139,7 +138,7 @@ class Api:
                 api: dict = class_method(self, *args, **kwds) or {}
                 self.adjust_api(api)
                 bound = inspect.signature(class_method).bind(self, *args, **kwds)
-                api_path: str = path.format(**api.get('format', {}), **bound.arguments)
+                api_path: str = path.format(**(api.get('format') or {}), **bound.arguments)
                 params: dict = api.get('params')
                 data: dict = api.get('data')
                 headers: dict = api.get('headers')
@@ -162,14 +161,18 @@ class Api:
                 }
                 '''
                 self.get_sleep_enough(interval)
-                return parse_response(self.session.request(
-                    method,
-                    url,
-                    params=params,
-                    data=data,
-                    auth=auth,
-                    headers=headers
-                ))
+                try:
+                    return parse_response(self.session.request(
+                        method,
+                        url,
+                        params=params,
+                        data=data,
+                        auth=auth,
+                        headers=headers
+                    ))
+                finally:
+                    self.last_executed_timestamp = time.time()
+
             return wrapper
         return decorator
 
@@ -181,7 +184,6 @@ class Api:
         if sleep_time > 0:
             logger.debug(f'Sleep for {sleep_time} seconds to complete a {interval}-second interval...')
             time.sleep(sleep_time)
-        self.last_executed_timestamp = time.time()
 
 
 class GoogleDrive(Api):
@@ -247,8 +249,8 @@ class GoogleDrive(Api):
             current_path = [(root, ancestor_id)]
         else:
             current_path = [(file.get('name'), file.get('id'))]
-            break_conuter = 100
-            while file.get('parents') and break_conuter > 0:
+            break_counter = 100
+            while file.get('parents') and break_counter > 0:
                 ttl_hash = get_ttl_hash(self.cache_ttl) if self.cache_enable else time.time()
                 file = self.get_file(file.get('parents')[0], ttl_hash=ttl_hash)
                 if root and file.get('id') == ancestor_id:
@@ -256,7 +258,7 @@ class GoogleDrive(Api):
                     break
                 else:
                     current_path.append((file.get('name'), file.get('id')))
-                break_conuter -= 1
+                break_counter -= 1
         if len(current_path[-1][1]) < 20:
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
         full_path = pathlib.Path(*[p[0] for p in current_path[::-1] if p[0]])
@@ -266,7 +268,6 @@ class GoogleDrive(Api):
         return str(full_path), parent, web_view
 
     def get_file(self, item_id: str, fields: str = 'id, name, parents, mimeType, webViewLink', ttl_hash: int | float = 3600) -> dict:
-        del ttl_hash
         result = {'id': item_id}
         try:
             result = self.api_drive.files().get(
@@ -288,18 +289,10 @@ class GoogleDrive(Api):
         return result
 
     def handle_error(self, error: Exception) -> None:
-        try:
-            raise error
-        except errors.HttpError:
+        if isinstance(error, errors.HttpError):
             logger.error(f'Google: error=HttpError status_code={error.resp.status} reason="{html.escape(error._get_reason().strip())}" uri="{error.uri}"')
-        except:
+        else:
             logger.error(traceback.format_exc())
-            #lines = traceback.format_exc().splitlines()
-            #for idx, line in enumerate(lines, start=1):
-            #    if idx < len(lines):
-            #        logger.error(line)
-            #    else:
-            #        logger.error(html.escape(line))
 
 
 class Rclone(Api):
@@ -370,29 +363,29 @@ class Rclone(Api):
         return data
 
     def get_metadata_cache(self) -> tuple[int, int]:
-        if not (result := self.api_vfs_stats(self.vfs).get('json', {}).get("metadataCache")):
+        if not (result := (self.api_vfs_stats(self.vfs).get('json') or {}).get("metadataCache")):
             logger.error(f'Rclone: No metadata cache statistics, assumed 0...')
-        return result.get('dirs', 0), result.get('files', 0)
+        return result.get('dirs') or 0, result.get('files') or 0
 
-    def is_file(self, remote_path: str) -> bool:
-        item: dict = self.api_operations_stat(remote_path, self.vfs).get('json', {}).get('item', {})
-        return item.get('IsDir', 'None').lower() == 'true'
+    def is_dir(self, remote_path: str) -> bool:
+        item: dict = (self.api_operations_stat(remote_path, self.vfs).get('json') or {}).get('item') or {}
+        return (item.get('IsDir') or '').lower() == 'true'
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
         for parent in target.parents:
-            result = self.api_vfs_refresh(parent.as_posix()).get('json', {})
+            result = self.api_vfs_refresh(parent.as_posix()).get('json') or {}
             logger.info(f'Rclone: {result}')
-            if result.get('result', {}).get(parent.as_posix(), '').lower() == 'ok':
+            if ((result.get('result') or {}).get(parent.as_posix()) or '').lower() == 'ok':
                 break
         else:
             logger.error(f'It has hit the root path: {str(target)}')
             return
-        result = self.api_vfs_refresh(target.as_posix(), recursive).get('json', {})
+        result = self.api_vfs_refresh(target.as_posix(), recursive).get('json')
         logger.info(f'Rclone: {result}')
 
     def forget(self, remote_path: str, is_directory: bool = False) -> None:
-        logger.info(f'Rclone: {self.api_vfs_forget(remote_path, is_directory).get("json", {})}')
+        logger.info(f'Rclone: {self.api_vfs_forget(remote_path, is_directory).get("json")}')
 
 
 class Plex(Api):
@@ -432,7 +425,7 @@ class Plex(Api):
         result = self.api_sections()
         sections = result.get('json')
         if not sections:
-            logger.error(f'No section information, status_code={result.get("status_code", 0)}')
+            logger.error(f'No section information, status_code={result.get("status_code")}')
             return -1
         for directory in sections['MediaContainer']['Directory']:
             for location in directory['Location']:
@@ -478,9 +471,9 @@ class Kavita(Api):
 
     def set_token(self) -> None:
         result = self.api_plugin_authenticate()
-        if not 199 < result.get('status_code', 0) < 300:
+        if not 199 < result.get('status_code') < 300:
             logger.error(f'kavita: {result}')
-        auth = result.get('json', {})
+        auth = result.get('json') or {}
         self.token = auth.get('token') or ''
         self.refresh_token = auth.get('refreshToken') or ''
 

@@ -6,21 +6,21 @@ import datetime
 import asyncio
 import re
 import time
-import random
+from abc import ABC, abstractmethod
 from typing import Any, Iterable
 
 import dispatchers
 from apis import GoogleDrive
-from helpers import await_sync, PrioritizedItem
+from helpers import await_sync, PrioritizedItem, check_tasks
 
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
 logger = logging.getLogger(__name__)
 
 
-class GoogleDrivePoller:
+class GoogleDrivePoller(ABC):
 
     def __init__(self, drive: GoogleDrive, targets: list[str], dispatcher_list: list[dispatchers.Dispatcher] = None, name: str = None,
-                 polling_interval: int = 60, page_size: int = 50, actions: Iterable = None,
+                 polling_interval: int = 60, page_size: int = 50, actions: Iterable = None, task_check_interval: int = -1,
                  patterns: list = None, ignore_patterns: list = None, ignore_folder: bool = True, dispatch_interval: int = 1):
         self.drive = drive
         self.targets = targets
@@ -33,6 +33,7 @@ class GoogleDrivePoller:
         self.ignore_patterns = ignore_patterns
         self.ignore_folder = ignore_folder
         self.dispatch_interval = dispatch_interval
+        self.task_check_interval = task_check_interval
 
         self._stop_event = asyncio.Event()
         self._dispatch_queue = None
@@ -118,7 +119,7 @@ class GoogleDrivePoller:
 
     @patterns.setter
     def patterns(self, patterns: list) -> None:
-        self._patterns = list(patterns) if patterns else ['.*']
+        self._patterns = [re.compile(pattern, re.I) for pattern in patterns] if patterns else [re.compile('.*', re.I)]
 
     @property
     def ignore_patterns(self) -> list:
@@ -126,7 +127,7 @@ class GoogleDrivePoller:
 
     @ignore_patterns.setter
     def ignore_patterns(self, ignore_patterns: list) -> None:
-        self._ignore_patterns = list(ignore_patterns) if ignore_patterns else []
+        self._ignore_patterns = [re.compile(pattern, re.I) for pattern in ignore_patterns] if ignore_patterns else []
 
     @property
     def dispatch_interval(self) -> int:
@@ -160,18 +161,35 @@ class GoogleDrivePoller:
     def tasks(self) -> list:
         return self._tasks
 
+    @tasks.setter
+    def tasks(self, tasks: list) -> None:
+        self._tasks = tasks if tasks is not None else []
+
+    @property
+    def task_check_interval(self) -> int:
+        return self._task_check_interval
+
+    @task_check_interval.setter
+    def task_check_interval(self, task_check_interval: int) -> None:
+        self._task_check_interval = int(task_check_interval)
+
     async def start(self) -> None:
         self._dispatch_queue = queue.PriorityQueue()
-        self._tasks = []
+        self.tasks = []
         if self.stop_event.is_set():
             self.stop_event.clear()
-        self.tasks.append(asyncio.create_task(self.dispatch(), name=self.name))
+        self.tasks.append(asyncio.create_task(self.dispatch(), name=f'dispatching-{self.name}'))
         for target in self.targets:
-            self.tasks.append(asyncio.create_task(self.poll(target), name=target))
+            id_, _, root = target.partition('#')
+            self.tasks.append(asyncio.create_task(self.poll(target), name=f'polling-{root if root else id_}'))
         for dispatcher in self.dispatcher_list:
             self.tasks.append(asyncio.create_task(dispatcher.start(), name=f'{self.name}-{dispatcher.__class__.__name__}'))
         try:
-            await asyncio.gather(*self.tasks)
+            gathers = [*self.tasks]
+            if self.task_check_interval > 0:
+                check_task = asyncio.create_task(check_tasks(self.tasks, self.task_check_interval), name='check_tasks')
+                gathers.append(check_task)
+            await asyncio.gather(*gathers)
         except asyncio.CancelledError:
             logger.warning(f'Tasks are cancelled: {self.name}')
 
@@ -187,21 +205,23 @@ class GoogleDrivePoller:
         self._dispatch_queue = None
         self._tasks = None
 
-    def check_patterns(self, path: str, patterns: list) -> bool:
+    def check_patterns(self, path: str, patterns: list[re.Pattern]) -> bool:
         for pattern in patterns:
             if not pattern:
                 continue
             try:
-                match = re.compile(pattern, re.I).search(path)
+                match = pattern.search(path)
                 if match:
                     return True
             except:
                 continue
         return False
 
+    @abstractmethod
     async def poll(self, target: Any) -> None:
         raise Exception('이 메소드를 구현하세요.')
 
+    @abstractmethod
     async def dispatch(self) -> None:
         raise Exception('이 메소드를 구현하세요.')
 
@@ -212,171 +232,175 @@ class ChangePoller(GoogleDrivePoller):
 
 class ActivityPoller(GoogleDrivePoller):
 
+    def __init__(self, *args, **kwds):
+        super(ActivityPoller, self).__init__(*args, **kwds)
+        # 구글 응답에 맞춰서 UTC
+        self.last_activity_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)
+        # Time is the problem....
+        self.last_no_activity_timestamp = time.time()
+
     async def dispatch(self) -> None:
         logger.info(f'Dispatching task starts: {self.name}')
         while not self.stop_event.is_set():
-            while not self.dispatch_queue.empty():
-                data = None
-                try:
-                    '''
-                    data = {
-                        'ancestor': str,
-                        'timestamp': datetime.datetime,
-                        'action': str,
-                        'action_detail': str | tuple | list | None,
-                        'target': tuple[str, str, str],
-                    }
-                    '''
-                    data: dict = self.dispatch_queue.get().item
-                    # action 필터링
-                    if data['action'] not in self.actions:
-                        logger.debug(f'Skipped: target={data["target"]} reason={data["action"]}')
-                        continue
-                    # 폴더 타입 확인
-                    if data['target'][2] in [
-                            'application/vnd.google-apps.folder',
-                            'application/vnd.google-apps.shortcut'
-                            ]:
-                        data['is_folder'] = True
-                    else:
-                        data['is_folder'] = False
-                    # 폴더 무시 판단
-                    if self.ignore_folder and data['is_folder']:
-                        logger.debug(f'Skipped: target={data["target"]} reason=folder')
-                        continue
-                    # 대상이 영구히 삭제돼서 조회 불가능 할 경우
-                    if data['action'] == 'delete' and data['action_detail'] != 'TRASH':
-                        logger.debug(f'Skipped: target={data["target"]} reason="deleted permanently"')
-                        continue
-                    # 대상 경로
-                    target_id = data['target'][1].partition('/')[-1]
-                    data['path'], parent, web_view = self.drive.get_full_path(target_id, data.get('ancestor'))
-                    if not parent[0]:
-                        logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} parent={parent[0]}")
-                        data['path'] = f"/unknown/{data['target'][0]}"
-                    # url 링크
-                    if web_view:
-                        data['link'] = web_view.strip()
-                    else:
-                        if data['is_folder']:
-                            url_folder_id = target_id
-                        else:
-                            url_folder_id = parent[1]
-                        data['link'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
-                    # move, rename일 경우 소스 경로
-                    data['removed_path'] = None
-                    if data['action'] == 'move' and data['action_detail']:
-                        logger.debug(f'Moved from: {data["action_detail"]}')
-                        try:
-                            removed_parent_id = data['action_detail'][1].partition('/')[-1]
-                            removed_path, _, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
-                            data['removed_path'] = str(pathlib.Path(removed_path, data['target'][0]))
-                        except:
-                            logger.error(traceback.format_exc())
-                    elif data['action'] == 'rename' and data['action_detail']:
-                        logger.debug(f'Renamed from: {data["action_detail"]}')
-                        data['removed_path'] = str(pathlib.Path(data['path']).with_name(data['action_detail']))
-                    # 기타 정보
-                    data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
-                    data['poller'] = self.name
-                    # 패턴 체크
-                    if not self.check_patterns(data['path'], self.patterns):
-                        logger.debug(f'Skipped: target="{data["path"]}" reason="Not match with patterns"')
-                        data['path'] = None
-                    elif self.check_patterns(data['path'], self.ignore_patterns):
-                        logger.debug(f'Skipped: target="{data["path"]}" reason="Match with ignore patterns"')
-                        data['path'] = None
-                    # removed_path 패턴 체크
-                    if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
-                        logger.debug(f'Skipped: removed_path="{data["removed_path"]}" reason="Not match with patterns"')
-                        data['removed_path'] = None
-                    elif data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
-                        logger.debug(f'Skipped: removed_path="{data["removed_path"]}" reason="Match with ignore patterns"')
-                        data['removed_path'] = None
-                    # move된 경로를 접근할 수 없을 경우
-                    match bool(data['path']), bool(data['removed_path']):
-                        case False, True:
-                            data['path'] = data['removed_path']
-                            data['removed_path'] = None
-                            data['action'] = 'delete'
-                            data['link'] = f'https://drive.google.com/drive/folders/{data["action_detail"][1].partition("/")[-1]}'
-                            data['action_detail'] = f'Moved but can not access: {data["target"][1]}'
-                        case False, False:
-                            continue
-                    for dispatcher in self.dispatcher_list:
-                        # activity 발생 순서대로, dispatcher 배치 순서대로
-                        await dispatcher.dispatch(data)
-                except Exception as e:
-                    logger.error(traceback.format_exc())
-                    logger.error(f'{data=}')
-                finally:
-                    if data:
-                        self.dispatch_queue.task_done()
-                # 큐에서 각 아이템을 꺼낸 후 sleep
-                for _ in range(self.dispatch_interval):
-                    await asyncio.sleep(1)
-                    if self.stop_event.is_set(): break
-            # 큐에서 아이템을 모두 꺼낸 후 sleep
-            await asyncio.sleep(1)
+            await self._dispatch()
+            # 큐에서 각 아이템을 꺼낸 후 sleep
+            for _ in range(max(self.dispatch_interval * 10, 10)):
+                await asyncio.sleep(0.1)
+                if self.stop_event.is_set(): break
         logger.info(f'Dispatching task ends: {self.name}')
 
-    async def poll(self, ancestor: str) -> None:
-        ancestor_id, _, root = ancestor.partition('#')
-        next_page_token = None
-        # 구글 응답에 맞춰서 UTC
-        last_activity_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)
-        # Time is the problem....
-        last_no_activity_timestamp = time.time()
-        no_activity_interval = 3600
-        no_activity_allowance = min(self.polling_interval, 60)
-        logger.info(f'Polling task starts: {ancestor}')
-        while not self.stop_event.is_set():
-            while not self.stop_event.is_set():
+    async def _dispatch(self) -> None:
+        data = None
+        try:
+            '''
+            data = {
+                'ancestor': str,
+                'timestamp': datetime.datetime,
+                'action': str,
+                'action_detail': str | tuple | list | None,
+                'target': tuple[str, str, str],
+            }
+            '''
+            data: dict = self.dispatch_queue.get_nowait().item
+            # action 필터링
+            if data['action'] not in self.actions:
+                logger.debug(f'Skipped: target={data["target"]} reason={data["action"]}')
+                return
+            # 폴더 타입 확인
+            if data['target'][2] in [
+                    'application/vnd.google-apps.folder',
+                    'application/vnd.google-apps.shortcut'
+                    ]:
+                data['is_folder'] = True
+            else:
+                data['is_folder'] = False
+            # 폴더 무시 판단
+            if self.ignore_folder and data['is_folder']:
+                logger.debug(f'Skipped: target={data["target"]} reason=folder')
+                return
+            # 대상이 영구히 삭제돼서 조회 불가능 할 경우
+            if data['action'] == 'delete' and data['action_detail'] != 'TRASH':
+                logger.debug(f'Skipped: target={data["target"]} reason="deleted permanently"')
+                return
+            # 대상 경로
+            target_id = data['target'][1].partition('/')[-1]
+            data['path'], parent, web_view = self.drive.get_full_path(target_id, data.get('ancestor'))
+            if not parent[0]:
+                logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} parent={parent[0]}")
+                data['path'] = f"/unknown/{data['target'][0]}"
+            # url 링크
+            if web_view:
+                data['link'] = web_view.strip()
+            else:
+                url_folder_id = target_id if data['is_folder'] else parent[1]
+                data['link'] = f'https://drive.google.com/drive/folders/{url_folder_id}'
+            # move, rename일 경우 소스 경로
+            data['removed_path'] = None
+            if data['action'] == 'move' and data['action_detail']:
+                logger.debug(f'Moved from: {data["action_detail"]}')
                 try:
-                    query = self.drive.api_activity.activity().query(body={
-                        'pageSize': self.page_size,
-                        'ancestorName': f'items/{ancestor_id}',
-                        'pageToken': next_page_token,
-                        'filter': f'time > "{last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
-                    })
-                    try:
-                        results = await await_sync(query.execute)
-                    except Exception as e:
-                        self.drive.handle_error(e)
-                        logger.error(f'Polling failed: {ancestor=}')
-                        break
-                    next_page_token = results.get('nextPageToken')
-                    activities = results.get('activities', [])
-                    if not activities:
-                        current_timestamp = time.time()
-                        if current_timestamp - last_no_activity_timestamp > no_activity_interval + random.randint(-no_activity_allowance, no_activity_allowance):
-                            logger.debug(F'No activity in "{root or ancestor}" since {last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
-                            last_no_activity_timestamp = current_timestamp
-                        break
-                    last_activity_timestamp_ = last_activity_timestamp
-                    for activity in activities:
-                        data = self.get_activity(activity)
-                        data['ancestor'] = ancestor
-                        logger.debug(f"{data['action']}, {data['target']}")
-                        self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
-                        if data['timestamp'] > last_activity_timestamp:
-                            if data['timestamp'] > datetime.datetime.now().astimezone(datetime.timezone.utc):
-                                logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
-                            else:
-                                last_activity_timestamp = data['timestamp']
-                    if activities and last_activity_timestamp_ == last_activity_timestamp:
-                        logger.warning('Last activity timestamp is not updated.')
-                        last_activity_timestamp += datetime.timedelta(seconds=1)
-                    if not next_page_token:
-                        break
-                except Exception as e:
+                    removed_parent_id = data['action_detail'][1].partition('/')[-1]
+                    removed_path, _, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                    data['removed_path'] = str(pathlib.Path(removed_path, data['target'][0]))
+                except:
                     logger.error(traceback.format_exc())
-                    logger.error(f'{ancestor=}')
-                    break
+            elif data['action'] == 'rename' and data['action_detail']:
+                logger.debug(f'Renamed from: {data["action_detail"]}')
+                data['removed_path'] = str(pathlib.Path(data['path']).with_name(data['action_detail']))
+            # 기타 정보
+            data['timestamp'] = data['timestamp'].astimezone(LOCAL_TIMEZONE).strftime('%Y-%m-%dT%H:%M:%S%z')
+            data['poller'] = self.name
+            # 패턴 체크
+            if not self.check_patterns(data['path'], self.patterns):
+                logger.debug(f'Skipped: target="{data["path"]}" reason="Not match with patterns"')
+                data['path'] = None
+            elif self.check_patterns(data['path'], self.ignore_patterns):
+                logger.debug(f'Skipped: target="{data["path"]}" reason="Match with ignore patterns"')
+                data['path'] = None
+            # removed_path 패턴 체크
+            if data['removed_path'] and not self.check_patterns(data['removed_path'], self.patterns):
+                logger.debug(f'Skipped: removed_path="{data["removed_path"]}" reason="Not match with patterns"')
+                data['removed_path'] = None
+            elif data['removed_path'] and self.check_patterns(data['removed_path'], self.ignore_patterns):
+                logger.debug(f'Skipped: removed_path="{data["removed_path"]}" reason="Match with ignore patterns"')
+                data['removed_path'] = None
+            # move된 경로를 접근할 수 없을 경우
+            match bool(data['path']), bool(data['removed_path']):
+                case False, True:
+                    data['path'] = data['removed_path']
+                    data['removed_path'] = None
+                    data['action'] = 'delete'
+                    data['link'] = f'https://drive.google.com/drive/folders/{data["action_detail"][1].partition("/")[-1]}'
+                    data['action_detail'] = f'Moved but can not access: {data["target"][1]}'
+                case False, False:
+                    return
+            for dispatcher in self.dispatcher_list:
+                # activity 발생 순서대로, dispatcher 배치 순서대로
+                await dispatcher.dispatch(data)
+        except queue.Empty:
+            pass
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            logger.error(f'{data=}')
+        finally:
+            if data:
+                self.dispatch_queue.task_done()
+
+
+    async def poll(self, ancestor: str) -> None:
+        logger.info(f'Polling task starts: {ancestor}')
+        activity_api = self.drive.api_activity.activity()
+        while not self.stop_event.is_set():
+            await self._poll(ancestor, activity_api)
             for _ in range(self.polling_interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
         logger.info(f'Polling task ends: {ancestor}')
+
+    async def _poll(self, ancestor: str, activity_api: callable) -> None:
+        ancestor_id, _, root = ancestor.partition('#')
+        next_page_token = None
+        try:
+            query = activity_api.query(body={
+                'pageSize': self.page_size,
+                'ancestorName': f'items/{ancestor_id}',
+                'pageToken': next_page_token,
+                'filter': f'time > "{self.last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
+            })
+            try:
+                results = await await_sync(query.execute)
+            except Exception as e:
+                self.drive.handle_error(e)
+                logger.error(f'Polling failed: {ancestor=}')
+                return
+            next_page_token = results.get('nextPageToken')
+            activities = results.get('activities', [])
+            if not activities:
+                current_timestamp = time.time()
+                if current_timestamp - self.last_no_activity_timestamp > self.task_check_interval:
+                    logger.debug(F'No activity in "{root or ancestor}" since {self.last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
+                    self.last_no_activity_timestamp = current_timestamp
+                return
+            last_activity_timestamp_ = self.last_activity_timestamp
+            for activity in activities:
+                data = self.get_activity(activity)
+                data['ancestor'] = ancestor
+                logger.debug(f"{data['action']}, {data['target']}")
+                self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
+                if data['timestamp'] > self.last_activity_timestamp:
+                    if data['timestamp'] > datetime.datetime.now().astimezone(datetime.timezone.utc):
+                        logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
+                    else:
+                        self.last_activity_timestamp = data['timestamp']
+            if activities and last_activity_timestamp_ == self.last_activity_timestamp:
+                logger.warning('Last activity timestamp is not updated.')
+                self.last_activity_timestamp += datetime.timedelta(seconds=1)
+            if not next_page_token:
+                return
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            logger.error(f'{ancestor=}')
+            return
 
     def get_activity(self, activity: dict) -> dict:
             #logger.debug(f'{activity["primaryActionDetail"]=}')
@@ -386,7 +410,7 @@ class ActivityPoller(GoogleDrivePoller):
             timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'
             data = {
                 'timestamp': datetime.datetime.strptime(timestamp, timestmap_format),
-                'target': next(map(self.getTargetInfo, activity['targets'])),
+                'target': next(map(self.getTargetInfo, activity['targets']), None),
             }
             data['action'], data['action_detail'] = self.getActionInfo(activity['primaryActionDetail'])
             return data
@@ -436,18 +460,18 @@ class ActivityPoller(GoogleDrivePoller):
     def getTargetInfo(self, target: dict) -> tuple:
         # Returns the type of a target and an associated title.
         if 'driveItem' in target:
-            title = target['driveItem'].get('title', 'unknown')
+            title = target['driveItem'].get('title') or 'unknown'
             name = target['driveItem'].get('name')
             mimeType = target['driveItem'].get('mimeType')
             return title, name, mimeType
         if 'drive' in target:
-            title = target['drive'].get('title', 'unknown')
+            title = target['drive'].get('title') or 'unknown'
             name = target['drive'].get('name')
             mimeType = target['drive'].get('mimeType')
             return title, name, mimeType
         if 'fileComment' in target:
-            parent = target['fileComment'].get('parent', {})
-            title = parent.get('title', 'unknown')
+            parent = target['fileComment'].get('parent') or {}
+            title = parent.get('title') or 'unknown'
             name = parent.get('name')
             mimeType = parent.get('mimeType')
             return title, name, mimeType
