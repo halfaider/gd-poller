@@ -8,37 +8,16 @@ import asyncio
 import dispatchers
 from apis import GoogleDrive
 from pollers import ActivityPoller
-from helpers import RedactedFormatter, check_packages, check_tasks
+from helpers import check_packages, check_tasks, set_logger
 
-check_packages([
+check_packages((
     ('yaml', 'pyyaml'),
-])
+))
 
 import yaml
 
 logger = logging.getLogger(__name__)
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
-
-
-def set_logger(logger_: logging.Logger = None, level: str = 'DEBUG', format: str = None, redacted_patterns: list = None, redacted_substitute: str = '<REDACTED>') -> None:
-    level = getattr(logging, level.upper(), logging.DEBUG)
-    if logger_:
-        logger_.setLevel(level)
-        handlers = logger_.handlers
-    else:
-        format = format or '%(asctime)s|%(levelname).3s|%(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
-        redacted_patterns = redacted_patterns or ('apikey=(.{10})', "'apikey': '(.{10})'", "'X-Plex-Token': '(.{20})'", "'X-Plex-Token=(.{20})'", "webhooks/(.+)/(.+):\\s{")
-        formatter = RedactedFormatter(patterns=redacted_patterns, substitute=redacted_substitute, fmt=format)
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        handlers = [
-            stream_handler
-        ]
-    for logger_name in [__name__, 'dispatchers', 'apis', 'helpers', 'pollers']:
-        logger_ = logging.getLogger(logger_name)
-        logger_.setLevel(level)
-        for handler in handlers:
-            logger_.addHandler(handler)
 
 
 async def async_main(*args: tuple, **kwds: dict) -> None:
@@ -75,7 +54,14 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
                 'redacted_substitute': '<REDACTED>',
             }
 
-        set_logger(kwds.get('logger'), config['logging']['level'], config['logging']['format'], config['logging']['redacted_patterns'], config['logging']['redacted_substitute'])
+        set_logger(
+            kwds.get('logger'),
+            config['logging']['level'],
+            config['logging']['format'],
+            config['logging']['redacted_patterns'],
+            config['logging']['redacted_substitute'],
+            (__name__, 'dispatchers', 'apis', 'helpers', 'pollers')
+        )
 
         # global values
         polling_interval = config.get('polling_interval', 60)
@@ -135,7 +121,6 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         except asyncio.CancelledError:
             logger.warning(f'Tasks are cancelled: {__name__}')
     except:
-        print(traceback.format_exc())
         logger.error(traceback.format_exc())
     finally:
         logger.debug('Stopping pollers....')
@@ -147,18 +132,10 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
         for task in tasks:
             logger.debug(task)
             if not task.done():
-                #task.print_stack()
                 task.cancel()
 
 
 def main(*args: tuple, **kwds: dict) -> None:
-    #try:
-    #    loop = asyncio.get_running_loop()
-    #    if loop.is_running():
-    #        print(f'Stopping running event loop...')
-    #        asyncio.run_coroutine_threadsafe(stop_event_loop(), loop)
-    #except Exception as e:
-    #    print(e)
     try:
         asyncio.run(async_main(*args, **kwds))
     except KeyboardInterrupt:

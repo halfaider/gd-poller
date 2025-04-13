@@ -9,19 +9,19 @@ import pathlib
 import time
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union, Iterable
+from typing import Any, Optional, Union, Iterable, Callable, Sequence
 from collections import OrderedDict
 
 
-def check_packages(packages: list) -> None:
-    for pkg in packages:
+def check_packages(packages: Iterable[Sequence[str]]) -> None:
+    for pkg, pi in packages:
         try:
-            __import__(pkg[0])
+            __import__(pkg)
         except:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U', pkg[1]])
+            subprocess.check_call((sys.executable, '-m', 'pip', 'install', '-U', pi))
 
 
-check_packages([('requests', 'requests')])
+check_packages((('requests', 'requests'),))
 
 import requests
 
@@ -40,22 +40,17 @@ class PrioritizedItem:
 
 class RedactedFormatter(logging.Formatter):
 
-    def __init__(self, *args, patterns: Iterable = [], substitute: str = '<REDACTED>', **kwds):
+    def __init__(self, *args, patterns: Iterable = (), substitute: str = '<REDACTED>', **kwds):
         super(RedactedFormatter, self).__init__(*args, **kwds)
-        self.patterns = []
+        self.patterns = tuple(re.compile(pattern, re.I) for pattern in patterns)
         self.substitute = substitute
-        for pattern in patterns:
-            self.patterns.append(re.compile(pattern, re.I))
 
     def format(self, record):
         msg = super().format(record)
         for pattern in self.patterns:
             match = pattern.search(msg)
             if match:
-                if len(match.groups()) > 0:
-                    groups = list(match.groups())
-                else:
-                    groups = [match.group(0)]
+                groups = groups if len(groups := match.groups()) > 0 else (match.group(0),)
                 for found in groups:
                     msg = self.redact(re.compile(found, re.I), msg)
         return msg
@@ -95,13 +90,14 @@ class FolderBuffer:
         return self.buffer.get(key)
 
 
-def request_json(func: callable) -> callable:
+def request_json(func: Callable) -> Callable:
     @functools.wraps(func)
     def wrapper(*args, data: Optional[dict] = None, timeout: Union[int, tuple] = None, **kwds: dict) -> requests.Response:
-        method = args[0] if type(args[0]) is str else args[1]
+        is_str = type(args[0]) is str
+        method = args[0] if is_str else args[1]
         try:
             if method.upper() == 'JSON':
-                args = ('POST', *args[1:]) if type(args[0]) is str else (args[0], 'POST', *args[2:])
+                args = ('POST', *args[1:]) if is_str else (args[0], 'POST', *args[2:])
                 response = func(*args, json=data, timeout=timeout, **kwds)
             else:
                 response = func(*args, data=data, timeout=timeout, **kwds)
@@ -138,12 +134,9 @@ def request(method: str, url: str, **kwds: dict) -> requests.Response:
     return requests.request(method, url, **kwds)
 
 
-async def request_async(method: str, url: str, data: Optional[dict] = None, timeout: Union[int, tuple, None] = None, **kwds: dict) -> requests.Response:
+async def request_async(method: str, url: str, **kwds: dict) -> requests.Response:
     try:
-        if method.upper() == 'JSON':
-            return await await_sync(requests.request, 'POST', url, json=data or {}, timeout=timeout, **kwds)
-        else:
-            return await await_sync(requests.request, method, url, data=data, timeout=timeout, **kwds)
+        return await await_sync(request, method, url, **kwds)
     except:
         return get_traceback_response(traceback.format_exc())
 
@@ -190,7 +183,7 @@ async def stop_event_loop() -> None:
     loop.close()
 
 
-async def await_sync(func: callable, *args, **kwds) -> Any:
+async def await_sync(func: Callable, *args, **kwds) -> Any:
     return await asyncio.get_running_loop().run_in_executor(None, functools.partial(func, *args, **kwds))
 
 
@@ -198,7 +191,7 @@ def get_last_dir(path_: str, is_dir: bool = False) -> str:
     return path_ if is_dir else str(pathlib.Path(path_).parent)
 
 
-def apply_cache(func: callable, maxsize: int = 64) -> callable:
+def apply_cache(func: Callable, maxsize: int = 64) -> Callable:
     @functools.lru_cache(maxsize=maxsize)
     def wrapper(*args, ttl_hash: int = 3600, **kwds):
         del ttl_hash
@@ -245,3 +238,24 @@ async def check_tasks(tasks: list[asyncio.Task], interval: int = 60) -> None:
         for task in done_tasks:
             tasks.remove(task)
         await asyncio.sleep(1)
+
+
+def set_logger(logger_: logging.Logger = None, level: str = 'DEBUG', format: str = None, redacted_patterns: Iterable = None, redacted_substitute: str = '<REDACTED>', loggers: list = None) -> None:
+    level = getattr(logging, level.upper(), logging.DEBUG)
+    if logger_:
+        logger_.setLevel(level)
+        handlers = logger_.handlers
+    else:
+        format = format or '%(asctime)s|%(levelname).3s|%(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
+        redacted_patterns = redacted_patterns or ('apikey=(.{10})', "'apikey': '(.{10})'", "'X-Plex-Token': '(.{20})'", "'X-Plex-Token=(.{20})'", "webhooks/(.+)/(.+):\\s{")
+        formatter = RedactedFormatter(patterns=redacted_patterns, substitute=redacted_substitute, fmt=format)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        handlers = (stream_handler,)
+    if not loggers:
+        loggers = (__name__,)
+    for logger_name in loggers:
+        logger_ = logging.getLogger(logger_name)
+        logger_.setLevel(level)
+        for handler in handlers:
+            logger_.addHandler(handler)

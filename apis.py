@@ -6,15 +6,15 @@ import functools
 import inspect
 import time
 import html
-from typing import Optional
+from typing import Optional, Callable
 
 from helpers import apply_cache, get_ttl_hash, parse_response, check_packages, HelperSession
 
-check_packages([
+check_packages((
     ('httplib2', 'httplib2'),
     ('googleapiclient', 'google-api-python-client'),
     ('google.oauth2', 'google-auth')
-])
+))
 
 from httplib2 import Http
 from google_auth_httplib2 import AuthorizedHttp
@@ -79,7 +79,7 @@ class Api:
     def last_executed_timestamp(self, value: float) -> None:
         self._last_executed_timestamp = value
 
-    def http_api(path: str, method: str = 'GET', interval: float = 0.0) -> callable:
+    def http_api(path: str, method: str = 'GET', interval: float = 0.0) -> Callable:
         """
         api에 추가적인 데이터가 필요한 경우 딕셔너리 형태로 리턴
 
@@ -132,7 +132,7 @@ class Api:
 
             test('group') -> '/path/group/users'
         """
-        def decorator(class_method: callable) -> callable:
+        def decorator(class_method: Callable) -> Callable:
             @functools.wraps(class_method)
             def wrapper(self: Api, *args: tuple, **kwds: dict) -> dict:
                 api: dict = class_method(self, *args, **kwds) or {}
@@ -161,17 +161,15 @@ class Api:
                 }
                 '''
                 self.get_sleep_enough(interval)
-                try:
-                    return parse_response(self.session.request(
-                        method,
-                        url,
-                        params=params,
-                        data=data,
-                        auth=auth,
-                        headers=headers
-                    ))
-                finally:
-                    self.last_executed_timestamp = time.time()
+                self.last_executed_timestamp = time.time()
+                return parse_response(self.session.request(
+                    method,
+                    url,
+                    params=params,
+                    data=data,
+                    auth=auth,
+                    headers=headers
+                ))
 
             return wrapper
         return decorator
@@ -204,14 +202,6 @@ class GoogleDrive(Api):
         self._api_activity: Resource = build('driveactivity', 'v2', requestBuilder=self.build_google_request, http=authorized_http)
         if self.cache_enable:
             self.get_file = apply_cache(self.get_file, self.cache_maxsize)
-            #def check_cache():
-            #    while True:
-            #        try:
-            #            logger.debug(self.get_file.cache_info())
-            #        except:
-            #            logger.error(traceback.format_exc())
-            #        time.sleep(60)
-            #threading.Thread(target=check_cache).start()
 
     @property
     def token(self) -> str:
@@ -313,7 +303,7 @@ class Rclone(Api):
         self.user = url.username
         self.password = url.password
         try:
-            self.url = urllib.parse.urlunparse([url.scheme, url.netloc, '', '', '', ''])
+            self.url = urllib.parse.urlunparse((url.scheme, url.netloc, '', '', '', ''))
         except Exception as e:
             logger.error(traceback.format_exc())
             logger.error(f'Rclone: {url=}')

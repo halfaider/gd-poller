@@ -5,6 +5,7 @@ import asyncio
 import traceback
 import subprocess
 import shlex
+from abc import ABC, abstractmethod
 
 from apis import Rclone, Plex, Kavita, Discord, Flaskfarm
 from helpers import FolderBuffer, parse_mappings, map_path, watch_process
@@ -12,7 +13,7 @@ from helpers import FolderBuffer, parse_mappings, map_path, watch_process
 logger = logging.getLogger(__name__)
 
 
-class Dispatcher:
+class Dispatcher(ABC):
 
     def __init__(self, *, mappings: list = None, buffer_interval: int = 30) -> None:
         self.stop_event = threading.Event()
@@ -35,6 +36,7 @@ class Dispatcher:
     async def on_stop(self) -> None:
         pass
 
+    @abstractmethod
     async def dispatch(self, data: dict) -> None:
         '''
         data = {
@@ -50,7 +52,6 @@ class Dispatcher:
             'poller': str,
         }
         '''
-        raise Exception('이 메소드를 구현하세요.')
 
     def get_mapping_path(self, target_path: str) -> str:
         return map_path(target_path, self.mappings) if self.mappings else target_path
@@ -106,11 +107,11 @@ class KavitaDispatcher(BufferedDispatcher):
         '''override'''
         logger.debug(f'Kavita buffer: {item}')
         parent = pathlib.Path(item[0])
-        types, names = zip(*[each for values in item[1].values() for each in values], strict=True)
+        types, names = zip(*(each for values in item[1].values() for each in values), strict=True)
         if 'file' in types:
-            folders = [str(parent)]
+            folders = (str(parent),)
         else:
-            folders = [str(parent / name) for name in names]
+            folders = (str(parent / name) for name in names)
         for target in folders:
             kavita_path = self.get_mapping_path(target)
             for _ in range(5):
@@ -199,7 +200,7 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
         '''override'''
         scan_targets = []
         target_path = self.get_mapping_path(data['path'])
-        if pathlib.Path(target_path).suffix.lower() in ['.json', '.yaml', '.yml']:
+        if pathlib.Path(target_path).suffix.lower() in ('.json', '.yaml', '.yml'):
             mode = 'REFRESH'
         else:
             if data['action'] == 'delete':
@@ -309,8 +310,8 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
 
     def __init__(self, rclones: list = [], plexes: list = [], **kwds) -> None:
         super(MultiPlexRcloneDispatcher, self).__init__(**kwds)
-        self.rclones = [RcloneDispatcher(**rclone) for rclone in rclones]
-        self.plexes = [PlexDispatcher(**plex) for plex in plexes]
+        self.rclones = tuple(RcloneDispatcher(**rclone) for rclone in rclones)
+        self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
@@ -319,11 +320,11 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         if self.rclones and (deletes := item[1].get('delete')):
             types, names = zip(*deletes, strict=True)
             if 'file' in types and len(types) > 1:
-                deleted_targets = [str(parent)]
+                deleted_targets = (str(parent),)
             else:
-                deleted_targets = [str(parent / name) for name in names]
+                deleted_targets = (str(parent / name) for name in names)
         else:
-            deleted_targets = []
+            deleted_targets = tuple()
         for dispatcher in self.rclones:
             for target in deleted_targets:
                 await dispatcher.dispatch({
@@ -337,11 +338,11 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
             })
         if not self.plexes:
             return
-        types, names = zip(*[each for values in item[1].values() for each in values], strict=True)
+        types, names = zip(*(each for values in item[1].values() for each in values), strict=True)
         if 'file' in types:
-            folders = [str(parent)]
+            folders = (str(parent),)
         else:
-            folders = [str(parent / name) for name in names]
+            folders = (str(parent / name) for name in names)
         for dispatcher in self.plexes:
             for target in folders:
                 await dispatcher.dispatch({

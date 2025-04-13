@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class GoogleDrivePoller(ABC):
 
-    def __init__(self, drive: GoogleDrive, targets: list[str], dispatcher_list: list[dispatchers.Dispatcher] = None, name: str = None,
+    def __init__(self, drive: GoogleDrive, targets: Iterable[str], dispatcher_list: Iterable[dispatchers.Dispatcher] = None, name: str = None,
                  polling_interval: int = 60, page_size: int = 50, actions: Iterable = None, task_check_interval: int = -1,
                  patterns: list = None, ignore_patterns: list = None, ignore_folder: bool = True, dispatch_interval: int = 1):
         self.drive = drive
@@ -61,12 +61,12 @@ class GoogleDrivePoller(ABC):
             raise Exception(f'The targets is not a list: {targets=}')
 
     @property
-    def dispatcher_list(self) -> list[dispatchers.Dispatcher]:
+    def dispatcher_list(self) -> Iterable[dispatchers.Dispatcher]:
         return self._dispatcher_list
 
     @dispatcher_list.setter
-    def dispatcher_list(self, dispatcher_list: list[dispatchers.Dispatcher]) -> None:
-        self._dispatcher_list = dispatcher_list if dispatcher_list else [dispatchers.DummyDispatcher()]
+    def dispatcher_list(self, dispatcher_list: Iterable[dispatchers.Dispatcher]) -> None:
+        self._dispatcher_list = dispatcher_list if dispatcher_list else (dispatchers.DummyDispatcher(),)
 
     @property
     def name(self) -> str:
@@ -114,12 +114,12 @@ class GoogleDrivePoller(ABC):
         )
 
     @property
-    def patterns(self) -> list:
+    def patterns(self) -> Iterable[re.Pattern]:
         return self._patterns
 
     @patterns.setter
-    def patterns(self, patterns: list) -> None:
-        self._patterns = [re.compile(pattern, re.I) for pattern in patterns] if patterns else [re.compile('.*', re.I)]
+    def patterns(self, patterns: Iterable[str]) -> None:
+        self._patterns = tuple(re.compile(pattern, re.I) for pattern in patterns) if patterns else (re.compile('.*', re.I),)
 
     @property
     def ignore_patterns(self) -> list:
@@ -127,7 +127,7 @@ class GoogleDrivePoller(ABC):
 
     @ignore_patterns.setter
     def ignore_patterns(self, ignore_patterns: list) -> None:
-        self._ignore_patterns = [re.compile(pattern, re.I) for pattern in ignore_patterns] if ignore_patterns else []
+        self._ignore_patterns = tuple(re.compile(pattern, re.I) for pattern in ignore_patterns) if ignore_patterns else ()
 
     @property
     def dispatch_interval(self) -> int:
@@ -201,17 +201,19 @@ class GoogleDrivePoller(ABC):
             logger.debug(task)
             if not task.done():
                 task.print_stack()
-                task.cancel()
+                try:
+                    task.cancel()
+                except:
+                    logger.error(traceback.format_exc())
         self._dispatch_queue = None
         self._tasks = None
 
-    def check_patterns(self, path: str, patterns: list[re.Pattern]) -> bool:
+    def check_patterns(self, path: str, patterns: Iterable[re.Pattern]) -> bool:
         for pattern in patterns:
             if not pattern:
                 continue
             try:
-                match = pattern.search(path)
-                if match:
+                if pattern.search(path):
                     return True
             except:
                 continue
@@ -219,11 +221,11 @@ class GoogleDrivePoller(ABC):
 
     @abstractmethod
     async def poll(self, target: Any) -> None:
-        raise Exception('이 메소드를 구현하세요.')
+        pass
 
     @abstractmethod
     async def dispatch(self) -> None:
-        raise Exception('이 메소드를 구현하세요.')
+        pass
 
 
 class ChangePoller(GoogleDrivePoller):
@@ -267,10 +269,10 @@ class ActivityPoller(GoogleDrivePoller):
                 logger.debug(f'Skipped: target={data["target"]} reason={data["action"]}')
                 return
             # 폴더 타입 확인
-            if data['target'][2] in [
+            if data['target'][2] in (
                     'application/vnd.google-apps.folder',
                     'application/vnd.google-apps.shortcut'
-                    ]:
+                ):
                 data['is_folder'] = True
             else:
                 data['is_folder'] = False
@@ -346,7 +348,6 @@ class ActivityPoller(GoogleDrivePoller):
             if data:
                 self.dispatch_queue.task_done()
 
-
     async def poll(self, ancestor: str) -> None:
         logger.info(f'Polling task starts: {ancestor}')
         activity_api = self.drive.api_activity.activity()
@@ -378,7 +379,7 @@ class ActivityPoller(GoogleDrivePoller):
                 activities = results.get('activities', [])
                 if not activities:
                     current_timestamp = time.time()
-                    if current_timestamp - self.last_no_activity_timestamp > self.task_check_interval:
+                    if self.task_check_interval > 0 and current_timestamp - self.last_no_activity_timestamp > self.task_check_interval:
                         logger.debug(F'No activity in "{root or ancestor}" since {self.last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
                         self.last_no_activity_timestamp = current_timestamp
                     break
@@ -407,26 +408,26 @@ class ActivityPoller(GoogleDrivePoller):
             #logger.debug(f'{activity["primaryActionDetail"]=}')
             #logger.debug(f'{activity["actions"]=}')
             #logger.debug(f'{activity["targets"]=}')
-            timestamp = self.getTimeInfo(activity)
-            timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in timestamp else '%Y-%m-%dT%H:%M:%S%z'
+            time_info = self.get_time_info(activity)
+            timestmap_format = '%Y-%m-%dT%H:%M:%S.%f%z' if '.' in time_info else '%Y-%m-%dT%H:%M:%S%z'
             data = {
-                'timestamp': datetime.datetime.strptime(timestamp, timestmap_format),
-                'target': next(map(self.getTargetInfo, activity['targets']), None),
+                'timestamp': datetime.datetime.strptime(time_info, timestmap_format),
+                'target': next(map(self.get_target_info, activity['targets']), None),
             }
-            data['action'], data['action_detail'] = self.getActionInfo(activity['primaryActionDetail'])
+            data['action'], data['action_detail'] = self.get_action_info(activity['primaryActionDetail'])
             return data
 
     def get_move_from(self, action_detail: dict) -> str:
         removed_parents = action_detail['move'].get('removedParents', [{}])
-        return self.getTargetInfo(removed_parents[0])
+        return self.get_target_info(removed_parents[0])
 
-    def getOneOf(self, obj: dict) -> str:
+    def get_one_of(self, obj: dict) -> str:
         # Returns the name of a set property in an object, or else "unknown".
         for key in obj:
             return key
         return 'unknown'
 
-    def getTimeInfo(self, activity: dict) -> str:
+    def get_time_info(self, activity: dict) -> str:
         # Returns a time associated with an activity.
         if 'timestamp' in activity:
             return activity['timestamp']
@@ -434,14 +435,14 @@ class ActivityPoller(GoogleDrivePoller):
             return activity['timeRange']['endTime']
         return 'unknown'
 
-    def getActionInfo(self, actionDetail: dict) -> tuple:
+    def get_action_info(self, actionDetail: dict) -> tuple:
         # Returns the type of action.
         for key in actionDetail:
             match key:
                 case 'create':
-                    action_detail: str = self.getOneOf(actionDetail[key])
+                    action_detail: str = self.get_one_of(actionDetail[key])
                 case 'move' if actionDetail[key].get('removedParents'):
-                    action_detail: tuple = self.getTargetInfo(actionDetail[key]["removedParents"][0])
+                    action_detail: tuple = self.get_target_info(actionDetail[key]["removedParents"][0])
                 case 'rename' if actionDetail[key].get('oldTitle'):
                     action_detail: str = actionDetail[key]['oldTitle']
                 case 'delete' | 'restore' | 'dlpChange' | 'reference':
@@ -450,7 +451,7 @@ class ActivityPoller(GoogleDrivePoller):
                     action_detail: list = actionDetail[key]['addedPermissions']
                 case 'comment':
                     actionDetail[key].pop('mentionedUsers')
-                    action_detail = actionDetail[key][self.getOneOf(actionDetail[key])]['subtype']
+                    action_detail = actionDetail[key][self.get_one_of(actionDetail[key])]['subtype']
                 case 'settingsChange':
                     action_detail = actionDetail[key]['restrictionChanges'][0]['newRestriction']
                 case _:
@@ -458,7 +459,7 @@ class ActivityPoller(GoogleDrivePoller):
             return key, action_detail
         return 'unknown', None
 
-    def getTargetInfo(self, target: dict) -> tuple:
+    def get_target_info(self, target: dict) -> tuple:
         # Returns the type of a target and an associated title.
         if 'driveItem' in target:
             title = target['driveItem'].get('title') or 'unknown'
@@ -476,4 +477,4 @@ class ActivityPoller(GoogleDrivePoller):
             name = parent.get('name')
             mimeType = parent.get('mimeType')
             return title, name, mimeType
-        return self.getOneOf(target), None, None
+        return self.get_one_of(target), None, None
