@@ -237,7 +237,7 @@ class ActivityPoller(GoogleDrivePoller):
     def __init__(self, *args, **kwds):
         super(ActivityPoller, self).__init__(*args, **kwds)
         # 구글 응답에 맞춰서 UTC
-        self.last_activity_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)
+        self.last_activity_timestamp = datetime.datetime.now(datetime.timezone.utc)
         # Time is the problem....
         self.last_no_activity_timestamp = time.time()
 
@@ -391,11 +391,11 @@ class ActivityPoller(GoogleDrivePoller):
                     logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']}")
                     self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
                     if data['timestamp'] > self.last_activity_timestamp:
-                        if data['timestamp'] > datetime.datetime.now().astimezone(datetime.timezone.utc):
+                        if data['timestamp'] > datetime.datetime.now(datetime.timezone.utc):
                             logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
                         else:
                             self.last_activity_timestamp = data['timestamp']
-                if activities and last_timestamp == self.last_activity_timestamp:
+                if last_timestamp == self.last_activity_timestamp:
                     logger.warning('Last activity timestamp is not updated.')
                     #self.last_activity_timestamp += datetime.timedelta(seconds=1)
                 if not next_page_token:

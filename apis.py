@@ -368,6 +368,8 @@ class Rclone(Api):
             logger.info(f'Rclone: {result}')
             if ((result.get('result') or {}).get(parent.as_posix()) or '').lower() == 'ok':
                 break
+            if (result.get('result') or {}).get('error'):
+                return
         else:
             logger.error(f'It has hit the root path: {str(target)}')
             return
