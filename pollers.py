@@ -341,9 +341,8 @@ class ActivityPoller(GoogleDrivePoller):
                 await dispatcher.dispatch(data)
         except queue.Empty:
             pass
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.error(f'{data=}')
+        except:
+            logger.exception(f'{data=}')
         finally:
             if data:
                 self.dispatch_queue.task_done()
@@ -384,7 +383,7 @@ class ActivityPoller(GoogleDrivePoller):
                         self.last_no_activity_timestamp = current_timestamp
                     break
                 last_timestamp = self.last_activity_timestamp
-                logger.debug(f'Last activity timestamp: {self.last_activity_timestamp}')
+                logger.debug(f'Last activity timestamp: {self.last_activity_timestamp} ({root or ancestor_id})')
                 for activity in activities:
                     data = self.get_activity(activity)
                     data['ancestor'] = ancestor
@@ -400,9 +399,8 @@ class ActivityPoller(GoogleDrivePoller):
                     #self.last_activity_timestamp += datetime.timedelta(seconds=1)
                 if not next_page_token:
                     break
-            except Exception as e:
-                logger.error(traceback.format_exc())
-                logger.error(f'{ancestor=}')
+            except:
+                logger.exception(f'{ancestor=}')
 
     def get_activity(self, activity: dict) -> dict:
             #logger.debug(f'{activity["primaryActionDetail"]=}')

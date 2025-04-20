@@ -5,7 +5,7 @@ task_check_interval: -1
 page_size: 100
 ignore_folder: true
 patterns: [.*]
-ignore_patterns: ['\.((json|log|git/?)$|log\.)', '[/\\](\..+|bonus|extra|featurette|other|sample|screenshot|trailer|\[업로드\])s?']
+ignore_patterns: ['\.((json|bak|mpd|log|git/?)$|log\.)', '[/\\](\..+|bonus|extra|featurette|other|sample|screenshot|trailer|\[업로드\])s?']
 actions:
 buffer_interval: 30
 

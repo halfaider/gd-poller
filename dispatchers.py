@@ -142,7 +142,7 @@ class FlaskfarmDispatcher(Dispatcher):
 
 class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
 
-    ALLOWED_ACTIONS = ('create', 'move', 'rename')
+    ALLOWED_ACTIONS = ('create', 'move', 'rename', 'restore')
     INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
 
     def __init__(self, url: str, apikey: str, **kwds) -> None:
@@ -396,8 +396,7 @@ class CommandDispatcher(Dispatcher):
             try:
                 process.wait(timeout=self.timeout)
             except:
-                logger.error(traceback.format_exc())
-                logger.error(data['path'])
+                logger.exception(data['path'])
         else:
             task = asyncio.create_task(watch_process(process, self.stop_event, timeout=self.timeout))
             task.set_name(data['path'])

@@ -305,9 +305,8 @@ class Rclone(Api):
         try:
             self.url = urllib.parse.urlunparse((url.scheme, url.netloc, '', '', '', ''))
         except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.error(f'Rclone: {url=}')
-            raise e
+            logger.exception(f'Rclone: {url=}')
+            raise
 
     def adjust_api(self, api_data: dict) -> None:
         '''override'''

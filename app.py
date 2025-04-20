@@ -36,8 +36,7 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
             try:
                 config = yaml.safe_load(file)
             except yaml.YAMLError:
-                logger.error(traceback.format_exc())
-                logger.error(f'설정 파일을 불러올 수 없습니다. YAML 문법에 맞게 작성되었는지 확인해 보세요: {CONFIG_FILE.absolute()}')
+                logger.exception(f'설정 파일을 불러올 수 없습니다. YAML 문법에 맞게 작성되었는지 확인해 보세요: {CONFIG_FILE.absolute()}')
                 return
 
         if not config.get('logging'):
