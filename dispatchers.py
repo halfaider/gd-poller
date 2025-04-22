@@ -6,6 +6,7 @@ import traceback
 import subprocess
 import shlex
 from abc import ABC, abstractmethod
+from typing import Any
 
 from apis import Rclone, Plex, Kavita, Discord, Flaskfarm
 from helpers import FolderBuffer, parse_mappings, map_path, watch_process
@@ -59,7 +60,7 @@ class Dispatcher(ABC):
 
 class BufferedDispatcher(Dispatcher):
 
-    def __init__(self, **kwds) -> None:
+    def __init__(self, **kwds: Any) -> None:
         super(BufferedDispatcher, self).__init__(**kwds)
         self.folder_buffer = FolderBuffer()
 
@@ -99,7 +100,7 @@ class DummyDispatcher(Dispatcher):
 
 class KavitaDispatcher(BufferedDispatcher):
 
-    def __init__(self, url: str = None, apikey: str = None, **kwds) -> None:
+    def __init__(self, url: str = None, apikey: str = None, **kwds: Any) -> None:
         super(KavitaDispatcher, self).__init__(**kwds)
         self.kavita = Kavita(url, apikey)
 
@@ -135,7 +136,7 @@ class KavitaDispatcher(BufferedDispatcher):
 
 class FlaskfarmDispatcher(Dispatcher):
 
-    def __init__(self, url: str, apikey: str, **kwds) -> None:
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
         super(FlaskfarmDispatcher, self).__init__(**kwds)
         self.flaskfarm = Flaskfarm(url, apikey)
 
@@ -145,7 +146,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
     ALLOWED_ACTIONS = ('create', 'move', 'rename', 'restore')
     INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
 
-    def __init__(self, url: str, apikey: str, **kwds) -> None:
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
         super(GDSToolDispatcher, self).__init__(url, apikey, **kwds)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
@@ -232,7 +233,7 @@ class DiscordDispatcher(Dispatcher):
             webhook_id: str = None,
             webhook_token: str = None,
             colors: dict = None,
-            **kwds
+            **kwds: Any
         ) -> None:
         super(DiscordDispatcher, self).__init__(**kwds)
         if colors:
@@ -270,7 +271,7 @@ class DiscordDispatcher(Dispatcher):
 
 class RcloneDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, **kwds) -> None:
+    def __init__(self, url: str = None, **kwds: Any) -> None:
         super(RcloneDispatcher, self).__init__(**kwds)
         self.rclone = Rclone(url)
 
@@ -290,7 +291,7 @@ class RcloneDispatcher(Dispatcher):
 
 class PlexDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, token: str = None, **kwds) -> None:
+    def __init__(self, url: str = None, token: str = None, **kwds: Any) -> None:
         super(PlexDispatcher, self).__init__(**kwds)
         self.plex = Plex(url, token)
 
@@ -308,7 +309,7 @@ class PlexDispatcher(Dispatcher):
 
 class MultiPlexRcloneDispatcher(BufferedDispatcher):
 
-    def __init__(self, rclones: list = [], plexes: list = [], **kwds) -> None:
+    def __init__(self, rclones: list = [], plexes: list = [], **kwds: Any) -> None:
         super(MultiPlexRcloneDispatcher, self).__init__(**kwds)
         self.rclones = tuple(RcloneDispatcher(**rclone) for rclone in rclones)
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
@@ -354,7 +355,7 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
 class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
     '''DEPRECATED'''
 
-    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, plex_mappings: list = None, **kwds) -> None:
+    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, plex_mappings: list = None, **kwds: Any) -> None:
         rclones = [{
             'url': url,
             'mappings': mappings
@@ -369,7 +370,7 @@ class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
 
 class CommandDispatcher(Dispatcher):
 
-    def __init__(self, command: str, wait_for_process: bool = False, drop_during_process = False, timeout: int = 300, **kwds) -> None:
+    def __init__(self, command: str, wait_for_process: bool = False, drop_during_process = False, timeout: int = 300, **kwds: Any) -> None:
         super(CommandDispatcher, self).__init__(**kwds)
         self.command = command
         self.wait_for_process = wait_for_process

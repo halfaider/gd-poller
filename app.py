@@ -4,6 +4,7 @@ import datetime
 import logging
 import pathlib
 import asyncio
+from typing import Any
 
 import dispatchers
 from apis import GoogleDrive
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 LOCAL_TIMEZONE = datetime.datetime.now(datetime.timezone(datetime.timedelta(0))).astimezone().tzinfo
 
 
-async def async_main(*args: tuple, **kwds: dict) -> None:
+async def async_main(*args: Any, **kwds: Any) -> None:
     pollers = []
     tasks = []
     try:
@@ -134,7 +135,7 @@ async def async_main(*args: tuple, **kwds: dict) -> None:
                 task.cancel()
 
 
-def main(*args: tuple, **kwds: dict) -> None:
+def main(*args: Any, **kwds: Any) -> None:
     try:
         asyncio.run(async_main(*args, **kwds))
     except KeyboardInterrupt:

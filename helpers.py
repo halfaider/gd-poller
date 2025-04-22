@@ -9,7 +9,7 @@ import pathlib
 import time
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union, Iterable, Callable, Sequence
+from typing import Any, Iterable, Callable, Sequence
 from collections import OrderedDict
 
 
@@ -40,7 +40,7 @@ class PrioritizedItem:
 
 class RedactedFormatter(logging.Formatter):
 
-    def __init__(self, *args, patterns: Iterable = (), substitute: str = '<REDACTED>', **kwds):
+    def __init__(self, *args: Any, patterns: Iterable = (), substitute: str = '<REDACTED>', **kwds: Any):
         super(RedactedFormatter, self).__init__(*args, **kwds)
         self.patterns = tuple(re.compile(pattern, re.I) for pattern in patterns)
         self.substitute = substitute
@@ -90,23 +90,6 @@ class FolderBuffer:
         return self.buffer.get(key)
 
 
-def request_json(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, data: Optional[dict] = None, timeout: Union[int, tuple] = None, **kwds: dict) -> requests.Response:
-        is_str = type(args[0]) is str
-        method = args[0] if is_str else args[1]
-        try:
-            if method.upper() == 'JSON':
-                args = ('POST', *args[1:]) if is_str else (args[0], 'POST', *args[2:])
-                response = func(*args, json=data, timeout=timeout, **kwds)
-            else:
-                response = func(*args, data=data, timeout=timeout, **kwds)
-        except:
-            response = get_traceback_response(traceback.format_exc())
-        return response
-    return wrapper
-
-
 def get_traceback_response(tb: str) -> requests.Response:
     logger.error(tb)
     response = requests.Response()
@@ -123,18 +106,16 @@ class HelperSession(requests.Session):
         if headers:
             self.headers.update(headers)
 
-    @request_json
-    def request(self, method: str, url: str, **kwds: dict) -> requests.Response:
+    def request(self, method: str, url: str, **kwds: Any) -> requests.Response:
         '''override'''
         return super(HelperSession, self).request(method, url, **kwds)
 
 
-@request_json
-def request(method: str, url: str, **kwds: dict) -> requests.Response:
+def request(method: str, url: str, **kwds: Any) -> requests.Response:
     return requests.request(method, url, **kwds)
 
 
-async def request_async(method: str, url: str, **kwds: dict) -> requests.Response:
+async def request_async(method: str, url: str, **kwds: Any) -> requests.Response:
     try:
         return await await_sync(request, method, url, **kwds)
     except:
@@ -183,7 +164,7 @@ async def stop_event_loop() -> None:
     loop.close()
 
 
-async def await_sync(func: Callable, *args, **kwds) -> Any:
+async def await_sync(func: Callable, *args: Any, **kwds: Any) -> Any:
     return await asyncio.get_running_loop().run_in_executor(None, functools.partial(func, *args, **kwds))
 
 
@@ -193,7 +174,7 @@ def get_last_dir(path_: str, is_dir: bool = False) -> str:
 
 def apply_cache(func: Callable, maxsize: int = 64) -> Callable:
     @functools.lru_cache(maxsize=maxsize)
-    def wrapper(*args, ttl_hash: int = 3600, **kwds):
+    def wrapper(*args: Any, ttl_hash: int = 3600, **kwds: Any):
         del ttl_hash
         return func(*args, **kwds)
     return wrapper

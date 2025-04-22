@@ -234,7 +234,7 @@ class ChangePoller(GoogleDrivePoller):
 
 class ActivityPoller(GoogleDrivePoller):
 
-    def __init__(self, *args, **kwds):
+    def __init__(self, *args: Any, **kwds: Any):
         super(ActivityPoller, self).__init__(*args, **kwds)
         # 구글 응답에 맞춰서 UTC
         self.last_activity_timestamp = datetime.datetime.now(datetime.timezone.utc)

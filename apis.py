@@ -6,7 +6,7 @@ import functools
 import inspect
 import time
 import html
-from typing import Optional, Callable
+from typing import Any, Optional, Callable
 
 from helpers import apply_cache, get_ttl_hash, parse_response, check_packages, HelperSession
 
@@ -104,7 +104,6 @@ class Api:
                 }
 
         params, data, headers는 requests.session 모듈의 request(parmas=params, data=data, headers=headers)로 전달 됨.
-        (method='json'일 경우 request(json=data)로 전달)
 
         api에 추가적인 데이터가 필요하지 않은 경우 리턴하지 않음
 
@@ -134,13 +133,14 @@ class Api:
         """
         def decorator(class_method: Callable) -> Callable:
             @functools.wraps(class_method)
-            def wrapper(self: Api, *args: tuple, **kwds: dict) -> dict:
+            def wrapper(self: Api, *args: Any, **kwds: Any) -> dict:
                 api: dict = class_method(self, *args, **kwds) or {}
                 self.adjust_api(api)
                 bound = inspect.signature(class_method).bind(self, *args, **kwds)
                 api_path: str = path.format(**(api.get('format') or {}), **bound.arguments)
                 params: dict = api.get('params')
                 data: dict = api.get('data')
+                json_: dict = api.get('json')
                 headers: dict = api.get('headers')
                 auth: tuple = api.get('auth')
                 url: str = urllib.parse.urlunparse((
@@ -167,6 +167,7 @@ class Api:
                     url,
                     params=params,
                     data=data,
+                    json=json_,
                     auth=auth,
                     headers=headers
                 ))
@@ -223,7 +224,7 @@ class GoogleDrive(Api):
     def api_activity(self) -> Resource:
         return self._api_activity
 
-    def build_google_request(self, http: AuthorizedHttp, *args, **kwargs):
+    def build_google_request(self, http: AuthorizedHttp, *args: Any, **kwargs: Any):
         # https://googleapis.github.io/google-api-python-client/docs/thread_safety.html
         new_http = AuthorizedHttp(self.credentials, http=Http())
         return HttpRequest(new_http, *args, **kwargs)
@@ -312,22 +313,22 @@ class Rclone(Api):
         '''override'''
         api_data['auth'] = (self.user, self.password) if self.user and self.password else None
 
-    @Api.http_api('/vfs/stats', method='JSON')
+    @Api.http_api('/vfs/stats', method='POST')
     def api_vfs_stats(self, fs: str = None) -> dict:
         data = {}
         data = self.set_vfs(fs, data)
-        return {'data': data}
+        return {'json': data}
 
-    @Api.http_api('/vfs/refresh', method='JSON')
+    @Api.http_api('/vfs/refresh', method='POST')
     def api_vfs_refresh(self, remote_path: str, recursive: bool = False, fs: str = None) -> dict:
         data = {
             'dir': remote_path,
             'recursive': str(recursive).lower()
         }
         data = self.set_vfs(fs, data)
-        return {'data': data}
+        return {'json': data}
 
-    @Api.http_api('/operations/stat', method='JSON')
+    @Api.http_api('/operations/stat', method='POST')
     def api_operations_stat(self, remote_path: str, opts: Optional[dict] = None, fs: str = None) -> dict:
         data = {
             'remote': remote_path,
@@ -335,15 +336,15 @@ class Rclone(Api):
         data = self.set_vfs(fs, data)
         if opts:
             data['opt'] = opts
-        return {'data': data}
+        return {'json': data}
 
-    @Api.http_api('/vfs/forget', method='JSON')
+    @Api.http_api('/vfs/forget', method='POST')
     def api_vfs_forget(self, local_path: str, is_directory: bool = False, fs: str = None) -> dict:
         data = {
             'dir' if is_directory else 'file': local_path
         }
         data = self.set_vfs(fs, data)
-        return {'data': data}
+        return {'json': data}
 
     def set_vfs(self, vfs: str, data: dict) -> dict:
         fs = vfs or self.vfs
@@ -440,7 +441,7 @@ class Kavita(Api):
     def __init__(self, url: str, apikey: str) -> None:
         super(Kavita, self).__init__(url)
         self.apikey = apikey.strip()
-        self.set_token()
+        #self.set_token()
 
     def adjust_api(self, api_data: dict) -> None:
         '''override'''
@@ -456,9 +457,9 @@ class Kavita(Api):
     def api_plugin_authenticate(self) -> dict:
         return {'params': {'pluginName': 'GDPoller', 'apiKey': self.apikey}}
 
-    @Api.http_api('/api/Library/scan-folder', method='JSON')
+    @Api.http_api('/api/Library/scan-folder', method='POST')
     def api_library_scan_folder(self, folder: str) -> dict:
-        return {'data': {'folderPath': folder, 'apiKey': self.apikey}}
+        return {'json': {'folderPath': folder, 'apiKey': self.apikey}}
 
     def set_token(self) -> None:
         result = self.api_plugin_authenticate()
@@ -491,7 +492,7 @@ class Discord(Api):
             'webhook_token': self.webhook_token,
         }
 
-    @Api.http_api('/webhooks/{webhook_id}/{webhook_token}', method='JSON', interval=1.5)
+    @Api.http_api('/webhooks/{webhook_id}/{webhook_token}', method='POST', interval=1.5)
     def api_webhook(self, username: str = 'Activity Poller', content: str = None, embeds: list[dict] = None) -> dict:
         data = {
             'username': username
@@ -500,7 +501,7 @@ class Discord(Api):
             data['embeds'] = embeds
         if content:
             data['content'] = content
-        return {'data': data}
+        return {'json': data}
 
 
 class Flaskfarm(Api):
