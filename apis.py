@@ -320,11 +320,12 @@ class Rclone(Api):
         return {'json': data}
 
     @Api.http_api('/vfs/refresh', method='POST')
-    def api_vfs_refresh(self, remote_path: str, recursive: bool = False, fs: str = None) -> dict:
+    def api_vfs_refresh(self, remote_path: str = None, recursive: bool = False, fs: str = None) -> dict:
         data = {
-            'dir': remote_path,
             'recursive': str(recursive).lower()
         }
+        if remote_path:
+            data['dir'] = remote_path
         data = self.set_vfs(fs, data)
         return {'json': data}
 
@@ -363,8 +364,11 @@ class Rclone(Api):
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
-        for parent in target.parents[:-1]:
-            result = self.api_vfs_refresh(parent.as_posix()).get('json') or {}
+        for parent in target.parents:
+            if parent == parent.parent:
+                result = self.api_vfs_refresh().get('json') or {}
+            else:
+                result = self.api_vfs_refresh(parent.as_posix()).get('json') or {}
             logger.info(f'Rclone: {result}')
             if ((result.get('result') or {}).get(parent.as_posix()) or '').lower() == 'ok':
                 break
