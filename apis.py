@@ -363,7 +363,7 @@ class Rclone(Api):
 
     def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
-        for parent in target.parents:
+        for parent in target.parents[:-1]:
             result = self.api_vfs_refresh(parent.as_posix()).get('json') or {}
             logger.info(f'Rclone: {result}')
             if ((result.get('result') or {}).get(parent.as_posix()) or '').lower() == 'ok':
