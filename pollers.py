@@ -57,8 +57,13 @@ class GoogleDrivePoller(ABC):
             if len(targets) < 1:
                 raise Exception(f'The targets is empty: {targets=}')
             self._targets = targets
+            self._last_timestamps = dict.fromkeys(self.targets)
         except:
             raise Exception(f'The targets is not a list: {targets=}')
+
+    @property
+    def last_timestamps(self) -> dict:
+        return self._last_timestamps
 
     @property
     def dispatcher_list(self) -> Iterable[dispatchers.Dispatcher]:
@@ -236,10 +241,6 @@ class ActivityPoller(GoogleDrivePoller):
 
     def __init__(self, *args: Any, **kwds: Any):
         super(ActivityPoller, self).__init__(*args, **kwds)
-        # 구글 응답에 맞춰서 UTC
-        self.last_activity_timestamp = datetime.datetime.now(datetime.timezone.utc)
-        # Time is the problem....
-        self.last_no_activity_timestamp = time.time()
 
     async def dispatch(self) -> None:
         logger.info(f'Dispatching task starts: {self.name}')
@@ -362,11 +363,14 @@ class ActivityPoller(GoogleDrivePoller):
         next_page_token = None
         while not self.stop_event.is_set():
             try:
+                if not self.last_timestamps[ancestor]:
+                    # 구글 응답에 맞춰서 UTC
+                    self.last_timestamps[ancestor] = [datetime.datetime.now(datetime.timezone.utc), time.time()]
                 query = activity_api.query(body={
                     'pageSize': self.page_size,
                     'ancestorName': f'items/{ancestor_id}',
                     'pageToken': next_page_token,
-                    'filter': f'time > "{self.last_activity_timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
+                    'filter': f'time > "{self.last_timestamps[ancestor][0].strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
                 })
                 try:
                     results = await await_sync(query.execute)
@@ -378,25 +382,25 @@ class ActivityPoller(GoogleDrivePoller):
                 activities = results.get('activities', [])
                 if not activities:
                     current_timestamp = time.time()
-                    if self.task_check_interval > 0 and current_timestamp - self.last_no_activity_timestamp > self.task_check_interval:
-                        logger.debug(F'No activity in "{root or ancestor}" since {self.last_activity_timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
-                        self.last_no_activity_timestamp = current_timestamp
+                    if self.task_check_interval > 0 and current_timestamp - self.last_timestamps[ancestor][1] > self.task_check_interval:
+                        logger.debug(F'No activity in "{root or ancestor}" since {self.last_timestamps[ancestor][0].astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
+                        self.last_timestamps[ancestor][1] = current_timestamp
                     break
-                last_timestamp = self.last_activity_timestamp
-                logger.debug(f'Last activity timestamp: {self.last_activity_timestamp} ({root or ancestor_id})')
+                last_timestamp = self.last_timestamps[ancestor][0]
+                logger.debug(f'Last activity timestamp: {self.last_timestamps[ancestor][0]} ({root or ancestor_id})')
                 for activity in activities:
                     data = self.get_activity(activity)
                     data['ancestor'] = ancestor
                     logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']}")
                     self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
-                    if data['timestamp'] > self.last_activity_timestamp:
+                    if data['timestamp'] > self.last_timestamps[ancestor][0]:
                         if data['timestamp'] > datetime.datetime.now(datetime.timezone.utc):
                             logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
                         else:
-                            self.last_activity_timestamp = data['timestamp']
-                if last_timestamp == self.last_activity_timestamp:
+                            self.last_timestamps[ancestor][0] = data['timestamp']
+                if last_timestamp == self.last_timestamps[ancestor][0]:
                     logger.warning('Last activity timestamp is not updated.')
-                    #self.last_activity_timestamp += datetime.timedelta(seconds=1)
+                    #self.last_timestamps[ancestor][0] += datetime.timedelta(seconds=1)
                 if not next_page_token:
                     break
             except:
