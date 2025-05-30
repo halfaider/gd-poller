@@ -229,10 +229,9 @@ class GoogleDrive(Api):
         new_http = AuthorizedHttp(self.credentials, http=Http())
         return HttpRequest(new_http, *args, **kwargs)
 
-    def get_full_path(self, item_id: str, ancestor: str = '') -> tuple[str, tuple[str, str], str]:
+    def get_full_path(self, item_id: str, ancestor_id: str = '', root: str = '') -> tuple[str, tuple[str, str], str]:
         if not item_id:
             raise Exception(f'ID를 확인하세요: "{item_id}"')
-        ancestor_id, _, root = ancestor.partition('#')
         # do not use cache
         file = self.get_file(item_id, ttl_hash=time.time())
         web_view = file.get('webViewLink')

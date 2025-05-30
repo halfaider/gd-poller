@@ -48,7 +48,7 @@ class GoogleDrivePoller(ABC):
         self._drive = drive
 
     @property
-    def targets(self) -> list:
+    def targets(self) -> dict:
         return self._targets
 
     @targets.setter
@@ -56,14 +56,25 @@ class GoogleDrivePoller(ABC):
         try:
             if len(targets) < 1:
                 raise Exception(f'The targets is empty: {targets=}')
-            self._targets = targets
-            self._last_timestamps = dict.fromkeys(self.targets)
+            """
+            {
+                '1DqPY6JooQ-_C1lNKxmptbVsKP1OWMIUv': {
+                    'root': 'ROOT/GDRIVE/VIDEO/영화/제목',
+                    'timestamps': [datetime.datetime(2025, 5, 30, 6, 30, 55, 536629, tzinfo=datetime.timezone.utc), 1748586702.0969362],
+                }
+            }
+            """
+            self._targets = {}
+            # 구글 응답에 맞춰서 UTC, [마지막 액티비티의 시간, 마지막 task 확인 시간]
+            timestamps = [datetime.datetime.now(datetime.timezone.utc), time.time()]
+            for target in targets:
+                ancestor_id, _, root = target.partition('#')
+                self._targets[ancestor_id] = {
+                    'root': root,
+                    'timestamps': timestamps
+                }
         except:
             raise Exception(f'The targets is not a list: {targets=}')
-
-    @property
-    def last_timestamps(self) -> dict:
-        return self._last_timestamps
 
     @property
     def dispatcher_list(self) -> Iterable[dispatchers.Dispatcher]:
@@ -185,8 +196,8 @@ class GoogleDrivePoller(ABC):
             self.stop_event.clear()
         self.tasks.append(asyncio.create_task(self.dispatch(), name=f'dispatching-{self.name}'))
         for target in self.targets:
-            id_, _, root = target.partition('#')
-            self.tasks.append(asyncio.create_task(self.poll(target), name=f'polling-{root if root else id_}'))
+            name = root if (root := self.targets[target].get('root')) else target
+            self.tasks.append(asyncio.create_task(self.poll(target), name=f'polling-{name}'))
         for dispatcher in self.dispatcher_list:
             self.tasks.append(asyncio.create_task(dispatcher.start(), name=f'{self.name}-{dispatcher.__class__.__name__}'))
         try:
@@ -287,9 +298,9 @@ class ActivityPoller(GoogleDrivePoller):
                 return
             # 대상 경로
             target_id = data['target'][1].partition('/')[-1]
-            data['path'], parent, web_view = self.drive.get_full_path(target_id, data.get('ancestor'))
+            data['path'], parent, web_view = self.drive.get_full_path(target_id, data.get('ancestor'), data.get('root'))
             if not parent[0]:
-                logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} parent={parent[0]}")
+                logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.get('ancestor')} root={data.get('root')} parent={parent[0]}")
                 data['path'] = f"/unknown/{data['target'][0]}"
             # url 링크
             if web_view:
@@ -303,7 +314,7 @@ class ActivityPoller(GoogleDrivePoller):
                 logger.debug(f'Moved from: {data["action_detail"]}')
                 try:
                     removed_parent_id = data['action_detail'][1].partition('/')[-1]
-                    removed_path, _, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'))
+                    removed_path, _, _ = self.drive.get_full_path(removed_parent_id, data.get('ancestor'), data.get('root'))
                     data['removed_path'] = str(pathlib.Path(removed_path, data['target'][0]))
                 except:
                     logger.error(traceback.format_exc())
@@ -359,18 +370,16 @@ class ActivityPoller(GoogleDrivePoller):
         logger.info(f'Polling task ends: {ancestor}')
 
     async def _poll(self, ancestor: str, activity_api: callable) -> None:
-        ancestor_id, _, root = ancestor.partition('#')
+        root = self.targets[ancestor].get('root')
+        ancestor_name = root or ancestor
         next_page_token = None
         while not self.stop_event.is_set():
             try:
-                if not self.last_timestamps[ancestor]:
-                    # 구글 응답에 맞춰서 UTC
-                    self.last_timestamps[ancestor] = [datetime.datetime.now(datetime.timezone.utc), time.time()]
                 query = activity_api.query(body={
                     'pageSize': self.page_size,
-                    'ancestorName': f'items/{ancestor_id}',
+                    'ancestorName': f'items/{ancestor}',
                     'pageToken': next_page_token,
-                    'filter': f'time > "{self.last_timestamps[ancestor][0].strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
+                    'filter': f'time > "{self.targets[ancestor]["timestamps"][0].strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
                 })
                 try:
                     results = await await_sync(query.execute)
@@ -382,25 +391,26 @@ class ActivityPoller(GoogleDrivePoller):
                 activities = results.get('activities', [])
                 if not activities:
                     current_timestamp = time.time()
-                    if self.task_check_interval > 0 and current_timestamp - self.last_timestamps[ancestor][1] > self.task_check_interval:
-                        logger.debug(F'No activity in "{root or ancestor}" since {self.last_timestamps[ancestor][0].astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
-                        self.last_timestamps[ancestor][1] = current_timestamp
+                    if self.task_check_interval > 0 and current_timestamp - self.targets[ancestor]['timestamps'][1] > self.task_check_interval:
+                        logger.debug(F'No activity in "{ancestor_name}" since {self.targets[ancestor]["timestamps"][0].astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
+                        self.targets[ancestor]['timestamps'][1] = current_timestamp
                     break
-                last_timestamp = self.last_timestamps[ancestor][0]
-                logger.debug(f'Last activity timestamp: {self.last_timestamps[ancestor][0]} ({root or ancestor_id})')
+                last_timestamp = self.targets[ancestor]['timestamps'][0]
+                logger.debug(f'Last activity timestamp: {self.targets[ancestor]["timestamps"][0]} ({ancestor_name})')
                 for activity in activities:
                     data = self.get_activity(activity)
                     data['ancestor'] = ancestor
+                    data['root'] = root
                     logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']}")
                     self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
-                    if data['timestamp'] > self.last_timestamps[ancestor][0]:
+                    if data['timestamp'] > self.targets[ancestor]['timestamps'][0]:
                         if data['timestamp'] > datetime.datetime.now(datetime.timezone.utc):
                             logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
                         else:
-                            self.last_timestamps[ancestor][0] = data['timestamp']
-                if last_timestamp == self.last_timestamps[ancestor][0]:
+                            self.targets[ancestor]['timestamps'][0] = data['timestamp']
+                if last_timestamp == self.targets[ancestor]['timestamps'][0]:
                     logger.warning('Last activity timestamp is not updated.')
-                    #self.last_timestamps[ancestor][0] += datetime.timedelta(seconds=1)
+                    self.targets[ancestor]['timestamps'][0] += datetime.timedelta(seconds=1)
                 if not next_page_token:
                     break
             except:
