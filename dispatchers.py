@@ -1,14 +1,14 @@
+import shlex
 import logging
 import pathlib
-import threading
 import asyncio
 import traceback
+import threading
 import subprocess
-import shlex
 from abc import ABC, abstractmethod
 from typing import Any
 
-from apis import Rclone, Plex, Kavita, Discord, Flaskfarm
+from apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot
 from helpers import FolderBuffer, parse_mappings, map_path, watch_process
 
 logger = logging.getLogger(__name__)
@@ -141,13 +141,10 @@ class FlaskfarmDispatcher(Dispatcher):
         self.flaskfarm = Flaskfarm(url, apikey)
 
 
-class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
+class GDSBroadcastDispatcher(BufferedDispatcher):
 
     ALLOWED_ACTIONS = ('create', 'move', 'rename', 'restore')
     INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
-
-    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
-        super(GDSToolDispatcher, self).__init__(url, apikey, **kwds)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         '''override'''
@@ -190,9 +187,32 @@ class GDSToolDispatcher(FlaskfarmDispatcher, BufferedDispatcher):
                     continue
                 targets.append(target)
         for target in targets:
-            self.flaskfarm.gds_tool_fp_broadcast(self.get_mapping_path(target[0]), target[1])
+            await self.broadcast(self.get_mapping_path(target[0]), target[1])
+
+    @abstractmethod
+    async def broadcast(self, path: str, mode: str) -> None:
+        pass
 
 
+class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
+
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
+        super(GDSToolDispatcher, self).__init__(url, apikey, **kwds)
+
+    async def broadcast(self, path: str, mode: str) -> None:
+        '''override'''
+        self.flaskfarm.gds_tool_fp_broadcast(path, mode)
+
+
+class FlaskfarmaiderDispatcher(GDSBroadcastDispatcher):
+
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
+        super(FlaskfarmaiderDispatcher, self).__init__(**kwds)
+        self.bot = FlaskfarmaiderBot(url, apikey)
+
+    async def broadcast(self, path: str, mode: str) -> None:
+        '''override'''
+        self.bot.api_broadcast(path, mode)
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):

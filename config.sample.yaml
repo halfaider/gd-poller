@@ -11,16 +11,16 @@ buffer_interval: 30
 
 # 로그 설정
 logging:
-  level: 'DEBUG'
-  #format: '%(asctime)s|%(levelname).3s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
-  format: '%(levelname).3s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
+  level: debug
+  format: '%(asctime)s|%(levelname)8s| %(message)s ... %(filename)s:%(lineno)d in %(funcName)s'
+  date_format: '%Y-%m-%d %H:%M:%S,%f'
   redacted_patterns:
     - "apikey=(.{10,36})"
-    - "'apikey': '(.{10,36})'"
-    - "'X-Plex-Token': '(.{20})'"
-    - "'X-Plex-Token=(.{20})'"
+    - "['\"]apikey['\"]: ['\"](.{10,36})['\"]"
+    - "['\"]X-Plex-Token['\"]: ['\"](.{20})['\"]"
+    - "['\"]X-Plex-Token=(.{20})['\"]"
     - "webhooks/(.+)/(.+):\\s{"
-  redacted_substitute: '<REDACTED>'
+  redacted_substitute: "<REDACTED>"
 
 # 구글 드라이브 설정
 google_drive:

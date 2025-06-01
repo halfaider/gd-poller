@@ -1,7 +1,10 @@
-__pycache__
-/instance
-config*.yaml
+*
+!__init__.py
+!.gitignore
+!apis.py
+!app.py
+!config.py
 !config.sample.yaml
-README.html
-/test
-test*.py
+!dispatchers.py
+!helpers.py
+!pollers.py

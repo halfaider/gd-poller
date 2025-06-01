@@ -1,11 +1,11 @@
-import pathlib
-import logging
-import traceback
-import urllib.parse
-import functools
-import inspect
 import time
 import html
+import pathlib
+import logging
+import inspect
+import traceback
+import functools
+import urllib.parse
 from typing import Any, Optional, Callable
 
 from helpers import apply_cache, get_ttl_hash, parse_response, check_packages, HelperSession
@@ -540,3 +540,24 @@ class Flaskfarm(Api):
     def gds_tool_fp_broadcast(self, gds_path: str, scan_mode: str) -> dict:
         self.api_gds_tool_fp_broadcast(gds_path, scan_mode)
         logger.info(f'gds_tool: mode={scan_mode} target="{gds_path}"')
+
+
+class FlaskfarmaiderBot(Api):
+
+    apikey = None
+
+    def __init__(self, url: str, apikey: str) -> None:
+        super(FlaskfarmaiderBot, self).__init__(url)
+        self.apikey = apikey.strip()
+
+    @Api.http_api('/api/broadcast', method='POST')
+    def api_broadcast(self, path: str, mode: str) -> dict:
+        if not path.startswith('/ROOT/GDRIVE'):
+            raise Exception(f'The path must start with "/ROOT/GDRIVE/": {path}')
+        return {
+            'data': {
+                'path': path,
+                'mode': mode,
+                'apikey': self.apikey
+            }
+        }

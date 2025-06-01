@@ -1,13 +1,15 @@
-import sys
-import subprocess
-import traceback
-import logging
 import re
-import asyncio
-import functools
-import pathlib
+import sys
 import time
+import logging
+import asyncio
+import pathlib
+import datetime
+import functools
+import traceback
 import threading
+import subprocess
+
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Callable, Sequence
 from collections import OrderedDict
@@ -54,6 +56,14 @@ class RedactedFormatter(logging.Formatter):
                 for found in groups:
                     msg = self.redact(re.compile(found, re.I), msg)
         return msg
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str = None):
+        dt = datetime.datetime.fromtimestamp(record.created)
+        if datefmt:
+            s = dt.strftime(datefmt)
+            return s[:-3]
+        else:
+            return super().formatTime(record, datefmt)
 
     def redact(self, pattern: re.Pattern, text: str) -> str:
         return pattern.sub(self.substitute, text)
@@ -221,22 +231,34 @@ async def check_tasks(tasks: list[asyncio.Task], interval: int = 60) -> None:
         await asyncio.sleep(1)
 
 
-def set_logger(logger_: logging.Logger = None, level: str = 'DEBUG', format: str = None, redacted_patterns: Iterable = None, redacted_substitute: str = '<REDACTED>', loggers: list = None) -> None:
-    level = getattr(logging, level.upper(), logging.DEBUG)
-    if logger_:
-        logger_.setLevel(level)
-        handlers = logger_.handlers
-    else:
-        format = format or '%(asctime)s|%(levelname).3s|%(message)s <%(filename)s:%(lineno)d#%(funcName)s>'
-        redacted_patterns = redacted_patterns or ('apikey=(.{10})', "'apikey': '(.{10})'", "'X-Plex-Token': '(.{20})'", "'X-Plex-Token=(.{20})'", "webhooks/(.+)/(.+):\\s{")
-        formatter = RedactedFormatter(patterns=redacted_patterns, substitute=redacted_substitute, fmt=format)
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        handlers = (stream_handler,)
-    if not loggers:
-        loggers = (__name__,)
-    for logger_name in loggers:
-        logger_ = logging.getLogger(logger_name)
-        logger_.setLevel(level)
-        for handler in handlers:
-            logger_.addHandler(handler)
+def set_logger(level: str = None,
+               format: str = None,
+               date_format: str = None,
+               redacted_patterns: Iterable = None,
+               redacted_substitute: str = None,
+               handlers: Iterable = None,
+               loggers: Iterable = None) -> None:
+    try:
+        level = getattr(logging, (level or 'info').upper(), logging.INFO)
+        fomatter = RedactedFormatter(
+            patterns=redacted_patterns or (r'apikey=(.{10})',),
+            substitute=redacted_substitute or '<REDACTED>',
+            fmt=format or '%(asctime)s|%(levelname)8s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>',
+            datefmt=date_format or '%Y-%m-%dT%H:%M:%S'
+        )
+        if not handlers:
+            handlers = (logging.StreamHandler(),)
+        for mod in loggers or ():
+            module_logger = logging.getLogger(mod)
+            module_logger.setLevel(level)
+            for handler in handlers:
+                if not any(isinstance(h, type(handler)) for h in module_logger.handlers):
+                    handler.setFormatter(fomatter)
+                    module_logger.addHandler(handler)
+    except Exception as e:
+        logger.warning(f'로깅 설정 실패: {e}', exc_info=True)
+        logging.basicConfig(
+            level=level or logging.DEBUG,
+            format=format or '%(asctime)s|%(levelname)8s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>',
+            datefmt=date_format or '%Y-%m-%dT%H:%M:%S'
+        )
