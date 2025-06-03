@@ -12,7 +12,7 @@ buffer_interval: 30
 # 로그 설정
 logging:
   level: debug
-  format: '%(asctime)s|%(levelname)8s| %(message)s ... %(filename)s:%(lineno)d in %(funcName)s'
+  format: '%(asctime)s|%(levelname)-8s %(message)s ... %(filename)s:%(lineno)d'
   date_format: '%Y-%m-%d %H:%M:%S,%f'
   redacted_patterns:
     - "apikey=(.{10,36})"
