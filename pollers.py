@@ -65,13 +65,14 @@ class GoogleDrivePoller(ABC):
             }
             """
             self._targets = {}
+            last_activity = datetime.datetime.now(datetime.timezone.utc)
+            last_no_activity = time.time()
             # 구글 응답에 맞춰서 UTC, [마지막 액티비티의 시간, 마지막 task 확인 시간]
-            timestamps = [datetime.datetime.now(datetime.timezone.utc), time.time()]
             for target in targets:
                 ancestor_id, _, root = target.partition('#')
                 self._targets[ancestor_id] = {
                     'root': root,
-                    'timestamps': timestamps
+                    'timestamps': [last_activity, last_no_activity]
                 }
         except:
             raise Exception(f'The targets is not a list: {targets=}')
@@ -252,6 +253,7 @@ class ActivityPoller(GoogleDrivePoller):
 
     def __init__(self, *args: Any, **kwds: Any):
         super(ActivityPoller, self).__init__(*args, **kwds)
+        self.resource = self.drive.api_activity.activity()
 
     async def dispatch(self) -> None:
         logger.info(f'Dispatching task starts: {self.name}')
@@ -361,21 +363,20 @@ class ActivityPoller(GoogleDrivePoller):
 
     async def poll(self, ancestor: str) -> None:
         logger.info(f'Polling task starts: {ancestor}')
-        activity_api = self.drive.api_activity.activity()
         while not self.stop_event.is_set():
-            await self._poll(ancestor, activity_api)
+            await self._poll(ancestor)
             for _ in range(self.polling_interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set(): break
         logger.info(f'Polling task ends: {ancestor}')
 
-    async def _poll(self, ancestor: str, activity_api: callable) -> None:
+    async def _poll(self, ancestor: str) -> None:
         root = self.targets[ancestor].get('root')
         ancestor_name = root or ancestor
         next_page_token = None
         while not self.stop_event.is_set():
             try:
-                query = activity_api.query(body={
+                query = self.resource.query(body={
                     'pageSize': self.page_size,
                     'ancestorName': f'items/{ancestor}',
                     'pageToken': next_page_token,
@@ -401,7 +402,7 @@ class ActivityPoller(GoogleDrivePoller):
                     data = self.get_activity(activity)
                     data['ancestor'] = ancestor
                     data['root'] = root
-                    logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']}")
+                    logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']} ({ancestor_name})")
                     self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
                     if data['timestamp'] > self.targets[ancestor]['timestamps'][0]:
                         if data['timestamp'] > datetime.datetime.now(datetime.timezone.utc):
