@@ -53,6 +53,15 @@ def get_default_config() -> dict:
     }
 
 
+def update_config(original: dict, update: dict) -> dict:
+    for key, value in update.items():
+        if isinstance(value, dict):
+            original[key] = update_config(original.get(key, {}), value)
+        else:
+            original[key] = value
+    return original
+
+
 def get_config(config_yaml: pathlib.Path = None) -> dict:
     yaml_config = None
     config_files = [pathlib.Path(__file__).with_name('config.yaml'), pathlib.Path(os.getcwd(), 'config.yaml')]
@@ -73,6 +82,5 @@ def get_config(config_yaml: pathlib.Path = None) -> dict:
         raise Exception('설정 값을 가져올 수 없습니다.')
 
     config = get_default_config()
-    config.update(yaml_config)
-
+    config = update_config(config, yaml_config)
     return config
