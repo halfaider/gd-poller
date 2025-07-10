@@ -71,16 +71,17 @@ async def async_main(*args: Any, **kwds: Any) -> None:
             activity_poller = ActivityPoller(
                 drive,
                 poller['targets'],
-                dispatcher_list,
+                dispatcher_list=dispatcher_list,
                 name=poller['name'],
                 polling_interval=poller.get('polling_interval') or config['polling_interval'],
                 page_size=poller.get('page_size') or config['page_size'],
                 actions=poller.get('actions') or config['actions'],
+                task_check_interval=poller.get('task_check_interval') or config['task_check_interval'],
                 patterns=poller.get('patterns') or config['patterns'],
                 ignore_patterns=poller.get('ignore_patterns') or config['ignore_patterns'],
                 ignore_folder=poller.get('ignore_folder') or config['ignore_folder'],
                 dispatch_interval=poller.get('dispatch_interval') or config['dispatch_interval'],
-                task_check_interval=poller.get('task_check_interval') or config['task_check_interval'])
+                polling_delay=poller.get('polling_delay') or config['polling_delay'])
             pollers.append(activity_poller)
 
         for poller in pollers:

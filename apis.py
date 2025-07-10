@@ -251,7 +251,7 @@ class GoogleDrive(Api):
                 break_counter -= 1
         if len(current_path[-1][1]) < 20:
             current_path[-1] = (f'/{current_path[-1][1]}', current_path[-1][1])
-        full_path = pathlib.Path(*[p[0] for p in current_path[::-1] if p[0]])
+        full_path = pathlib.Path(*(p[0] for p in current_path[::-1] if p[0]))
         parent = current_path[1] if len(current_path) > 1 else current_path[0]
         if self.cache_enable:
             logger.debug(self.get_file.cache_info())
@@ -463,6 +463,18 @@ class Kavita(Api):
     @Api.http_api('/api/Library/scan-folder', method='POST')
     def api_library_scan_folder(self, folder: str) -> dict:
         return {'json': {'folderPath': folder, 'apiKey': self.apikey}}
+
+    @Api.http_api('/api/Library/libraries', method='GET')
+    def api_libraries(self) -> dict:
+        pass
+
+    @Api.http_api('/api/Series/scan', method='POST')
+    def api_series_scan(self, series_id: int, library_id: int = -1, force: bool = False, colorscape: bool = False) -> dict:
+        return {'json': {'libraryId': library_id, 'seriesId': series_id, 'forceUPdate': force, 'forceColoerscape': colorscape}}
+
+    @Api.http_api('/api/Series/{series_id}', method='GET')
+    def api_series(self, series_id: int) -> dict:
+        pass
 
     def set_token(self) -> None:
         result = self.api_plugin_authenticate()

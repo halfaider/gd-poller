@@ -21,9 +21,8 @@ class GoogleDrivePoller(ABC):
 
     def __init__(self, drive: GoogleDrive, targets: Iterable[str], dispatcher_list: Iterable[dispatchers.Dispatcher] = None, name: str = None,
                  polling_interval: int = 60, page_size: int = 50, actions: Iterable = None, task_check_interval: int = -1,
-                 patterns: list = None, ignore_patterns: list = None, ignore_folder: bool = True, dispatch_interval: int = 1):
+                 patterns: list = None, ignore_patterns: list = None, ignore_folder: bool = True, dispatch_interval: int = 1, polling_delay: int = 60):
         self.drive = drive
-        self.targets = targets
         self.dispatcher_list = dispatcher_list
         self.name = name
         self.polling_interval = polling_interval
@@ -34,6 +33,10 @@ class GoogleDrivePoller(ABC):
         self.ignore_folder = ignore_folder
         self.dispatch_interval = dispatch_interval
         self.task_check_interval = task_check_interval
+        self.polling_delay = polling_delay
+
+        # polling_delay 초기화 후
+        self.targets = targets
 
         self._stop_event = asyncio.Event()
         self._dispatch_queue = None
@@ -65,9 +68,9 @@ class GoogleDrivePoller(ABC):
             }
             """
             self._targets = {}
-            last_activity = datetime.datetime.now(datetime.timezone.utc)
+            last_activity = datetime.datetime.now(LOCAL_TIMEZONE) - datetime.timedelta(seconds=self.polling_delay)
             last_no_activity = time.time()
-            # 구글 응답에 맞춰서 UTC, [마지막 액티비티의 시간, 마지막 task 확인 시간]
+            # [마지막 액티비티의 시간, 마지막 task 확인 시간]
             for target in targets:
                 ancestor_id, _, root = target.partition('#')
                 self._targets[ancestor_id] = {
@@ -98,8 +101,16 @@ class GoogleDrivePoller(ABC):
         return self._polling_interval
 
     @polling_interval.setter
-    def polling_interval(self, polling_interval: int) -> None:
-        self._polling_interval = int(polling_interval) if polling_interval else 60
+    def polling_interval(self, polling_interval: int = 60) -> None:
+        self._polling_interval = int(polling_interval)
+
+    @property
+    def polling_delay(self) -> int:
+        return self._polling_delay
+
+    @polling_delay.setter
+    def polling_delay(self, polling_delay: int = 60) -> None:
+        self._polling_delay = int(polling_delay)
 
     @property
     def page_size(self) -> int:
@@ -374,44 +385,41 @@ class ActivityPoller(GoogleDrivePoller):
         root = self.targets[ancestor].get('root')
         ancestor_name = root or ancestor
         next_page_token = None
+        timestamps = self.targets[ancestor]['timestamps']
         while not self.stop_event.is_set():
             try:
+                start_time = timestamps[0]
+                end_time = datetime.datetime.now(LOCAL_TIMEZONE) - datetime.timedelta(seconds=self.polling_delay)
                 query = self.resource.query(body={
                     'pageSize': self.page_size,
                     'ancestorName': f'items/{ancestor}',
                     'pageToken': next_page_token,
-                    'filter': f'time > "{self.targets[ancestor]["timestamps"][0].strftime("%Y-%m-%dT%H:%M:%S.%fZ")}"',
+                    'filter': f'time > {int(start_time.timestamp() * 1000)} AND time <= {int(end_time.timestamp() * 1000)}',
                 })
                 try:
                     results = await await_sync(query.execute)
+                    #logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
                 except Exception as e:
                     self.drive.handle_error(e)
                     logger.error(f'Polling failed: {ancestor=}')
                     break
                 next_page_token = results.get('nextPageToken')
-                activities = results.get('activities', [])
+                activities = results.get('activities')
                 if not activities:
                     current_timestamp = time.time()
-                    if self.task_check_interval > 0 and current_timestamp - self.targets[ancestor]['timestamps'][1] > self.task_check_interval:
-                        logger.debug(F'No activity in "{ancestor_name}" since {self.targets[ancestor]["timestamps"][0].astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S.%f%z")}')
-                        self.targets[ancestor]['timestamps'][1] = current_timestamp
+                    if self.task_check_interval > 0 and current_timestamp - timestamps[1] > self.task_check_interval:
+                        logger.debug(F'No activity in "{ancestor_name}" since {start_time.astimezone(LOCAL_TIMEZONE)}')
+                        timestamps[1] = current_timestamp
                     break
-                last_timestamp = self.targets[ancestor]['timestamps'][0]
-                logger.debug(f'Last activity timestamp: {self.targets[ancestor]["timestamps"][0]} ({ancestor_name})')
+                #logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
+                # activity가 1 개라도 있으면 start_time를 갱신
+                timestamps[0] = end_time
                 for activity in activities:
                     data = self.get_activity(activity)
                     data['ancestor'] = ancestor
                     data['root'] = root
-                    logger.debug(f"{data['action']}, {data['target']} at {data['timestamp']} ({ancestor_name})")
+                    logger.info(f"{data['action']}, {data['target']} at {data['timestamp'].astimezone(LOCAL_TIMEZONE)} ({ancestor_name})")
                     self.dispatch_queue.put(PrioritizedItem(data['timestamp'].timestamp(), data))
-                    if data['timestamp'] > self.targets[ancestor]['timestamps'][0]:
-                        if data['timestamp'] > datetime.datetime.now(datetime.timezone.utc):
-                            logger.warning(f'Skipped: timestamp={data["timestamp"]} reason="future"')
-                        else:
-                            self.targets[ancestor]['timestamps'][0] = data['timestamp']
-                if last_timestamp == self.targets[ancestor]['timestamps'][0]:
-                    logger.warning('Last activity timestamp is not updated.')
-                    self.targets[ancestor]['timestamps'][0] += datetime.timedelta(seconds=1)
                 if not next_page_token:
                     break
             except:
@@ -436,6 +444,8 @@ class ActivityPoller(GoogleDrivePoller):
 
     def get_one_of(self, obj: dict) -> str:
         # Returns the name of a set property in an object, or else "unknown".
+        if len(obj) > 1:
+            logger.error(f'MULTIPLE VALUES: {obj}')
         for key in obj:
             return key
         return 'unknown'

@@ -26,6 +26,7 @@ def get_default_config() -> dict:
             'redacted_substitute': '<REDACTED>',
         },
         'polling_interval': 60,
+        'polling_delay': 60,
         'dispatch_interval': 1,
         'task_check_interval': -1,
         'page_size': 100,

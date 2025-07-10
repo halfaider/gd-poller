@@ -1,4 +1,3 @@
-*
 !__init__.py
 !.gitignore
 !apis.py
@@ -9,3 +8,4 @@
 !helpers.py
 !pollers.py
 !requirements.txt
+*

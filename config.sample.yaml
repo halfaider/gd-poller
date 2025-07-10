@@ -1,5 +1,6 @@
 # 글로벌 설정
 polling_interval: 60
+polling_delay: 0
 dispatch_interval: 1
 task_check_interval: -1
 page_size: 100
