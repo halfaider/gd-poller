@@ -9,7 +9,7 @@ from typing import Any
 import dispatchers
 from apis import GoogleDrive
 from pollers import ActivityPoller
-from helpers import check_tasks, set_logger
+from helpers import check_tasks, set_logger, not_none
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def async_main(*args: Any, **kwds: Any) -> None:
         modules = set(file.stem for file in pathlib.Path(__file__).parent.glob('*.py'))
         if '__main__' not in modules:
             modules.add('__main__')
-        log_settings = config.pop('logging', {}) or {}
+        log_settings = not_none(config.pop('logging', None), {})
         set_logger(
             level=log_settings.get('level'),
             format=log_settings.get('format'),
@@ -64,8 +64,7 @@ async def async_main(*args: Any, **kwds: Any) -> None:
                 # yaml의 앵커는 동일한 객체를 참조
                 dispatcher_ = dispatcher.copy()
                 class_ = getattr(dispatchers, dispatcher_.pop('class'))
-                if not (bi := dispatcher_.get('buffer_interval')) or bi < 0:
-                    dispatcher_['buffer_interval'] = config['buffer_interval']
+                dispatcher_['buffer_interval'] = not_none(dispatcher_.get('buffer_interval'), config['buffer_interval'])
                 dispatcher_list.append(class_(**dispatcher_))
 
             activity_poller = ActivityPoller(
@@ -73,40 +72,40 @@ async def async_main(*args: Any, **kwds: Any) -> None:
                 poller['targets'],
                 dispatcher_list=dispatcher_list,
                 name=poller['name'],
-                polling_interval=poller.get('polling_interval') or config['polling_interval'],
-                page_size=poller.get('page_size') or config['page_size'],
+                polling_interval=not_none(poller.get('polling_interval'), config['polling_interval']),
+                page_size=not_none(poller.get('page_size'), config['page_size']),
                 actions=poller.get('actions') or config['actions'],
-                task_check_interval=poller.get('task_check_interval') or config['task_check_interval'],
+                task_check_interval=not_none(poller.get('task_check_interval'), config['task_check_interval']),
                 patterns=poller.get('patterns') or config['patterns'],
                 ignore_patterns=poller.get('ignore_patterns') or config['ignore_patterns'],
-                ignore_folder=poller.get('ignore_folder') or config['ignore_folder'],
-                dispatch_interval=poller.get('dispatch_interval') or config['dispatch_interval'],
-                polling_delay=poller.get('polling_delay') or config['polling_delay'])
+                ignore_folder=not_none(poller.get('ignore_folder'), config['ignore_folder']),
+                dispatch_interval=not_none(poller.get('dispatch_interval'), config['dispatch_interval']),
+                polling_delay=not_none(poller.get('polling_delay'), config['polling_delay'])
+            )
             pollers.append(activity_poller)
 
         for poller in pollers:
             tasks.append(asyncio.create_task(poller.start(), name=poller.name))
 
-        try:
-            gathers = [*tasks]
-            if config['task_check_interval'] > 0:
-                gathers.append(asyncio.create_task(check_tasks(tasks, config['task_check_interval']), name='check_tasks'))
-            await asyncio.gather(*gathers)
-        except asyncio.CancelledError:
-            logger.warning(f'Tasks are cancelled: {__name__}')
-    except:
+        if config['task_check_interval'] > 0:
+            tasks.append(asyncio.create_task(check_tasks(tasks, config['task_check_interval']), name='check_tasks'))
+        await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        logger.warning(f'Tasks are cancelled...')
+    except Exception:
         logger.error(traceback.format_exc())
     finally:
-        logger.debug('Stopping pollers....')
-        for poller in pollers:
-            try:
-                await poller.stop()
-            except:
-                logger.error(traceback.format_exc())
-        for task in tasks:
-            logger.debug(task)
-            if not task.done():
+        logger.info('Stopping pollers....')
+        running_tasks = [task for task in tasks if not task.done()]
+        if running_tasks:
+            for task in running_tasks:
                 task.cancel()
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+        stop_tasks = []
+        for poller in pollers:
+            stop_tasks.append(asyncio.create_task(poller.stop(), name=poller.name))
+        if stop_tasks:
+            await asyncio.gather(*stop_tasks, return_exceptions=True)
 
 
 def main(*args: Any, **kwds: Any) -> None:

@@ -34,6 +34,10 @@ DEFAULT_HEADERS = {
 }
 
 
+def not_none(value: Any, default: Any) -> Any:
+    return default if value is None else value
+
+
 @dataclass(order=True)
 class PrioritizedItem:
     priority: float
