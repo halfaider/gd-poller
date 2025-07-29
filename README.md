@@ -57,7 +57,7 @@ gd-poller /data/db/gd-poller.yaml
 ### 패키지 모듈을 지정해서 실행
 
 ```bash
-python3 -m gd_poller.cli /path/to/config.yaml
+python3 -m gd_poller.cli /path/to/settings.yaml
 ```
 
 ## 설정

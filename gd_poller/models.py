@@ -166,6 +166,8 @@ class MergedYamlSettingsSource(YamlConfigSettingsSource):
                 logger.warning(f"'{file_path.resolve()}' 파일을 불러왔습니다.")
                 # 존재하는 첫번째 파일만 로딩
                 break
+        else:
+            logger.error(f"설정 파일을 불러올 수 없습니다: {files}")
         return vars
 
 
@@ -240,7 +242,7 @@ class AppSettings(GlobalConfig, _BaseSettings):
             for dispatcher in poller.dispatchers:
                 if dispatcher.buffer_interval is None:
                     dispatcher.buffer_interval = poller.buffer_interval
-        #logger.warning(self.model_dump_json(indent=2))
+        # logger.warning(self.model_dump_json(indent=2))
 
 
 @functools.total_ordering
