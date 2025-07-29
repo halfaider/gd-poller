@@ -8,8 +8,10 @@ import subprocess
 from abc import ABC, abstractmethod
 from typing import Any
 
-from apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot
-from helpers import FolderBuffer, parse_mappings, map_path, watch_process
+from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot
+from .helpers import FolderBuffer, parse_mappings, map_path, watch_process
+from .models import ActivityData
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,21 +40,8 @@ class Dispatcher(ABC):
         pass
 
     @abstractmethod
-    async def dispatch(self, data: dict) -> None:
-        '''
-        data = {
-            'ancestor': str,
-            'action': str,
-            'action_detail': str | tuple | list | None,
-            'target': tuple[str, str, str],
-            'is_folder': bool,
-            'path': str,
-            'removed_path': str | None,
-            'link': str,
-            'timestamp': str,
-            'poller': str,
-        }
-        '''
+    async def dispatch(self, data: ActivityData) -> None:
+        pass
 
     def get_mapping_path(self, target_path: str) -> str:
         return map_path(target_path, self.mappings) if self.mappings else target_path
@@ -64,38 +53,40 @@ class BufferedDispatcher(Dispatcher):
         super(BufferedDispatcher, self).__init__(**kwds)
         self.folder_buffer = FolderBuffer()
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
-        if removed_path := data.get('removed_path'):
-            self.folder_buffer.put(removed_path, 'delete', data['is_folder'])
-        self.folder_buffer.put(data['path'], data['action'], data['is_folder'])
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
+        if removed_path := data.removed_path:
+            self.folder_buffer.put(removed_path, "delete", data.is_folder)
+        self.folder_buffer.put(data.path, data.action, data.is_folder)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
         logger.debug(item)
 
     async def on_start(self) -> None:
-        '''override'''
+        """override"""
         while not self.stop_event.is_set():
-            '''
+            """
             처리중에 데이터가 계속 put되면 interval 의미가 없어짐
             현재 버퍼 크기를 기준으로 데이터 처리량을 제한
-            '''
+            """
             for _ in range(len(self.folder_buffer)):
-                if self.stop_event.is_set(): break
+                if self.stop_event.is_set():
+                    break
                 try:
                     await self.buffered_dispatch(self.folder_buffer.pop())
                 except:
                     logger.error(traceback.format_exc())
             for _ in range(self.buffer_interval):
-                if self.stop_event.is_set(): break
+                if self.stop_event.is_set():
+                    break
                 await asyncio.sleep(1)
 
 
 class DummyDispatcher(Dispatcher):
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
-        logger.info(f'DummyDispatcher: {data}')
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
+        logger.info(f"DummyDispatcher: {data}")
 
 
 class KavitaDispatcher(BufferedDispatcher):
@@ -105,11 +96,13 @@ class KavitaDispatcher(BufferedDispatcher):
         self.kavita = Kavita(url, apikey)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        '''override'''
-        logger.debug(f'Kavita buffer: {item}')
+        """override"""
+        logger.debug(f"Kavita buffer: {item}")
         parent = pathlib.Path(item[0])
-        types, names = zip(*(each for values in item[1].values() for each in values), strict=True)
-        if 'file' in types:
+        types, names = zip(
+            *(each for values in item[1].values() for each in values), strict=True
+        )
+        if "file" in types:
             folders = (str(parent),)
         else:
             folders = (str(parent / name) for name in names)
@@ -120,16 +113,18 @@ class KavitaDispatcher(BufferedDispatcher):
                     self.kavita.set_token()
                 else:
                     if not 300 > status > 199:
-                        logger.warning(f'Kavita: Returned status {status} for "{kavita_path}"')
+                        logger.warning(
+                            f'Kavita: Returned status {status} for "{kavita_path}"'
+                        )
                     break
             else:
-                logger.error(f'Kavita: Failed to login after 5 times...')
+                logger.error(f"Kavita: Failed to login after 5 times...")
                 break
 
     async def scan_folder(self, path: str) -> int:
-        '''override'''
+        """override"""
         result = self.kavita.api_library_scan_folder(path)
-        status_code = result.get('status_code')
+        status_code = result.get("status_code")
         logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
         return status_code
 
@@ -143,24 +138,31 @@ class FlaskfarmDispatcher(Dispatcher):
 
 class GDSBroadcastDispatcher(BufferedDispatcher):
 
-    ALLOWED_ACTIONS = ('create', 'move', 'rename', 'restore')
-    INFO_EXTENSIONS = ('.json', '.yaml', '.yml')
+    ALLOWED_ACTIONS = ("create", "move", "rename", "restore")
+    INFO_EXTENSIONS = (".json", ".yaml", ".yml")
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        '''override'''
-        logger.debug(f'GDSTool buffer: {item}')
+        """override"""
+        logger.debug(f"GDSTool buffer: {item}")
         parent = pathlib.Path(item[0])
         targets: list[tuple[str, str]] = []
         # REMOVE 처리
-        if deletes := item[1].pop('delete', None):
+        if deletes := item[1].pop("delete", None):
             types, names = zip(*deletes, strict=True)
-            if 'file' in types and len(types) > 1:
-                targets.append((str(parent), 'REMOVE_FOLDER'))
+            if "file" in types and len(types) > 1:
+                targets.append((str(parent), "REMOVE_FOLDER"))
                 for name in names:
-                    logger.debug(f'Skipped: {str(parent / name)} reason="Multiple items"')
+                    logger.debug(
+                        f'Skipped: {str(parent / name)} reason="Multiple items"'
+                    )
             else:
                 for type_, name in deletes:
-                    targets.append((str(parent / name), 'REMOVE_FILE' if type_ == 'file' else 'REMOVE_FOLDER'))
+                    targets.append(
+                        (
+                            str(parent / name),
+                            "REMOVE_FILE" if type_ == "file" else "REMOVE_FOLDER",
+                        )
+                    )
         # ADD 처리
         for action in item[1]:
             if action not in self.ALLOWED_ACTIONS:
@@ -171,12 +173,12 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             folders = []
             info_files = []
             for type_, name in item[1][action]:
-                mode = 'ADD'
+                mode = "ADD"
                 target = pathlib.Path(parent / name)
-                if type_ == 'file' and target.suffix.lower() in self.INFO_EXTENSIONS:
+                if type_ == "file" and target.suffix.lower() in self.INFO_EXTENSIONS:
                     bucket = info_files
-                    mode = 'REFRESH'
-                elif type_ == 'folder':
+                    mode = "REFRESH"
+                elif type_ == "folder":
                     bucket = folders
                 else:
                     bucket = files
@@ -200,7 +202,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
         super(GDSToolDispatcher, self).__init__(url, apikey, **kwds)
 
     async def broadcast(self, path: str, mode: str) -> None:
-        '''override'''
+        """override"""
         self.flaskfarm.gds_tool_fp_broadcast(path, mode)
 
 
@@ -211,81 +213,103 @@ class FlaskfarmaiderDispatcher(GDSBroadcastDispatcher):
         self.bot = FlaskfarmaiderBot(url, apikey)
 
     async def broadcast(self, path: str, mode: str) -> None:
-        '''override'''
+        """override"""
         self.bot.api_broadcast(path, mode)
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
         scan_targets = []
-        target_path = self.get_mapping_path(data['path'])
-        if pathlib.Path(target_path).suffix.lower() in ('.json', '.yaml', '.yml'):
-            mode = 'REFRESH'
+        target_path = self.get_mapping_path(data.path)
+        if pathlib.Path(target_path).suffix.lower() in (".json", ".yaml", ".yml"):
+            mode = "REFRESH"
         else:
-            if data['action'] == 'delete':
-                mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
+            if data.action == "delete":
+                mode = "REMOVE_FOLDER" if data.is_folder else "REMOVE_FILE"
             else:
-                mode = 'ADD'
+                mode = "ADD"
         scan_targets.append((target_path, mode))
-        if removed := data.get('removed_path'):
-            mode = 'REMOVE_FOLDER' if data['is_folder'] else 'REMOVE_FILE'
+        if removed := data.removed_path:
+            mode = "REMOVE_FOLDER" if data.is_folder else "REMOVE_FILE"
             scan_targets.append((self.get_mapping_path(removed), mode))
         for st in scan_targets:
-            logger.info(f'plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(st[0], mode=st[1])}')
+            logger.info(
+                f"plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(st[0], mode=st[1])}"
+            )
 
 
 class DiscordDispatcher(Dispatcher):
 
     COLORS = {
-        'default': '0',
-        'move': '3447003',
-        'create': '5763719',
-        'delete': '15548997',
-        'edit': '16776960'
+        "default": "0",
+        "move": "3447003",
+        "create": "5763719",
+        "delete": "15548997",
+        "edit": "16776960",
     }
     MAX_FIELD_LEN = 1024
 
     def __init__(
-            self,
-            url: str = 'https://discord.com/api',
-            webhook_id: str = None,
-            webhook_token: str = None,
-            colors: dict = None,
-            **kwds: Any
-        ) -> None:
+        self,
+        url: str = "https://discord.com/api",
+        webhook_id: str = None,
+        webhook_token: str = None,
+        colors: dict = None,
+        **kwds: Any,
+    ) -> None:
         super(DiscordDispatcher, self).__init__(**kwds)
         if colors:
             self.COLORS.update(colors)
         self.discord = Discord(url, webhook_id, webhook_token)
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
         embed = {
-            'color': self.COLORS.get(data['action'], self.COLORS['default']),
-            'author': {
-                'name': data['poller'],
+            "color": self.COLORS.get(data.action, self.COLORS["default"]),
+            "author": {
+                "name": data.poller,
             },
-            'title': data['target'][0],
-            'description': f'# {data["action"].upper()}',
-            'fields': []
+            "title": data.target[0],
+            "description": f"# {data.action.upper()}",
+            "fields": [],
         }
-        embed['fields'].append({'name': 'Path', 'value': self.get_truncated(data['path'])})
-        if data['action'] == 'move':
-            embed['fields'].append({'name': 'From', 'value': self.get_truncated(data['removed_path'] if data['removed_path'] else 'unknown')})
-        elif data.get('action_detail') and type(data.get('action_detail')) in (str, int):
-            embed['fields'].append({'name': 'Details', 'value': self.get_truncated(data["action_detail"])})
-        embed['fields'].append({'name': 'ID', 'value': self.get_truncated(data['target'][1])})
-        embed['fields'].append({'name': 'MIME', 'value': self.get_truncated(data['target'][2])})
-        embed['fields'].append({'name': 'Link', 'value': self.get_truncated(data['link'])})
-        embed['fields'].append({'name': 'Occurred at', 'value': self.get_truncated(data['timestamp'])})
+        embed["fields"].append({"name": "Path", "value": self.get_truncated(data.path)})
+        if data.action == "move":
+            embed["fields"].append(
+                {
+                    "name": "From",
+                    "value": self.get_truncated(
+                        data.removed_path if data.removed_path else "unknown"
+                    ),
+                }
+            )
+        elif data.action_detail and type(data.action_detail) in (
+            str,
+            int,
+        ):
+            embed["fields"].append(
+                {"name": "Details", "value": self.get_truncated(data.action_detail)}
+            )
+        embed["fields"].append(
+            {"name": "ID", "value": self.get_truncated(data.target[1])}
+        )
+        embed["fields"].append(
+            {"name": "MIME", "value": self.get_truncated(data.target[2])}
+        )
+        embed["fields"].append({"name": "Link", "value": self.get_truncated(data.link)})
+        embed["fields"].append(
+            {"name": "Occurred at", "value": self.get_truncated(data.timestamp_text)}
+        )
         result = self.discord.api_webhook(embeds=[embed])
-        logger.info(f"Discord: target=\"{data['target'][0]}\" status_code={result.get('status_code')}")
+        logger.info(
+            f"Discord: target=\"{data.target[0]}\" status_code={result.get('status_code')}"
+        )
 
     def get_truncated(self, content: str) -> str:
         if len(content) > self.MAX_FIELD_LEN:
-            content = content[:self.MAX_FIELD_LEN - 3] + '...'
+            content = content[: self.MAX_FIELD_LEN - 3] + "..."
         return content
 
 
@@ -295,16 +319,16 @@ class RcloneDispatcher(Dispatcher):
         super(RcloneDispatcher, self).__init__(**kwds)
         self.rclone = Rclone(url)
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
-        remote_path = pathlib.Path(self.get_mapping_path(data['path']))
-        if data.get('action') == 'delete':
-            self.rclone.forget(str(remote_path), data['is_folder'])
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
+        remote_path = pathlib.Path(self.get_mapping_path(data.path))
+        if data.action == "delete":
+            self.rclone.forget(str(remote_path), data.is_folder)
             return
-        if removed_path := data.get('removed_path'):
+        if removed_path := data.removed_path:
             removed_remote_path = pathlib.Path(self.get_mapping_path(removed_path))
-            self.rclone.forget(str(removed_remote_path), data['is_folder'])
-        target_path = str(remote_path) if data['is_folder'] else str(remote_path.parent)
+            self.rclone.forget(str(removed_remote_path), data.is_folder)
+        target_path = str(remote_path) if data.is_folder else str(remote_path.parent)
         self.rclone.forget(target_path, True)
         self.rclone.refresh(target_path)
 
@@ -315,14 +339,18 @@ class PlexDispatcher(Dispatcher):
         super(PlexDispatcher, self).__init__(**kwds)
         self.plex = Plex(url, token)
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
         targets = set()
-        plex_path = pathlib.Path(self.get_mapping_path(data['path']))
-        targets.add(str(plex_path) if data['is_folder'] else str(plex_path.parent))
-        if removed_path := data.get('removed_path'):
+        plex_path = pathlib.Path(self.get_mapping_path(data.path))
+        targets.add(str(plex_path) if data.is_folder else str(plex_path.parent))
+        if removed_path := data.removed_path:
             removed_plex_path = pathlib.Path(self.get_mapping_path(removed_path))
-            targets.add(str(removed_plex_path) if data['is_folder'] else str(removed_plex_path.parent))
+            targets.add(
+                str(removed_plex_path)
+                if data.is_folder
+                else str(removed_plex_path.parent)
+            )
         for p_ in targets:
             self.plex.scan(p_, is_directory=True)
 
@@ -335,12 +363,12 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        '''override'''
-        logger.debug(f'PlexRclone buffer: {item}')
+        """override"""
+        logger.debug(f"PlexRclone buffer: {item}")
         parent = pathlib.Path(item[0])
-        if self.rclones and (deletes := item[1].get('delete')):
+        if self.rclones and (deletes := item[1].get("delete")):
             types, names = zip(*deletes, strict=True)
-            if 'file' in types and len(types) > 1:
+            if "file" in types and len(types) > 1:
                 deleted_targets = (str(parent),)
             else:
                 deleted_targets = (str(parent / name) for name in names)
@@ -348,49 +376,53 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
             deleted_targets = tuple()
         for dispatcher in self.rclones:
             for target in deleted_targets:
-                await dispatcher.dispatch({
-                    'action': 'delete',
-                    'path': target,
-                    'is_folder': True
-                })
-            await dispatcher.dispatch({
-                'path': str(parent),
-                'is_folder': True
-            })
+                await dispatcher.dispatch(
+                    {"action": "delete", "path": target, "is_folder": True}
+                )
+            await dispatcher.dispatch({"path": str(parent), "is_folder": True})
         if not self.plexes:
             return
-        types, names = zip(*(each for values in item[1].values() for each in values), strict=True)
-        if 'file' in types:
+        types, names = zip(
+            *(each for values in item[1].values() for each in values), strict=True
+        )
+        if "file" in types:
             folders = (str(parent),)
         else:
             folders = (str(parent / name) for name in names)
         for dispatcher in self.plexes:
             for target in folders:
-                await dispatcher.dispatch({
-                    'path': target,
-                    'is_folder': True
-                })
+                await dispatcher.dispatch({"path": target, "is_folder": True})
 
 
 class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
-    '''DEPRECATED'''
+    """DEPRECATED"""
 
-    def __init__(self, url: str = None, mappings: list = None, plex_url: str = None, plex_token: str = None, plex_mappings: list = None, **kwds: Any) -> None:
-        rclones = [{
-            'url': url,
-            'mappings': mappings
-        }]
-        plexes = [{
-            'url': plex_url,
-            'token': plex_token,
-            'mappings': plex_mappings
-        }]
-        super(PlexRcloneDispatcher, self).__init__(rclones=rclones, plexes=plexes, **kwds)
+    def __init__(
+        self,
+        url: str = None,
+        mappings: list = None,
+        plex_url: str = None,
+        plex_token: str = None,
+        plex_mappings: list = None,
+        **kwds: Any,
+    ) -> None:
+        rclones = [{"url": url, "mappings": mappings}]
+        plexes = [{"url": plex_url, "token": plex_token, "mappings": plex_mappings}]
+        super(PlexRcloneDispatcher, self).__init__(
+            rclones=rclones, plexes=plexes, **kwds
+        )
 
 
 class CommandDispatcher(Dispatcher):
 
-    def __init__(self, command: str, wait_for_process: bool = False, drop_during_process = False, timeout: int = 300, **kwds: Any) -> None:
+    def __init__(
+        self,
+        command: str,
+        wait_for_process: bool = False,
+        drop_during_process=False,
+        timeout: int = 300,
+        **kwds: Any,
+    ) -> None:
         super(CommandDispatcher, self).__init__(**kwds)
         self.command = command
         self.wait_for_process = wait_for_process
@@ -398,28 +430,30 @@ class CommandDispatcher(Dispatcher):
         self.timeout = timeout
         self.process_watchers = set()
 
-    async def dispatch(self, data: dict) -> None:
-        '''override'''
+    async def dispatch(self, data: ActivityData) -> None:
+        """override"""
         if self.drop_during_process and bool(self.process_watchers):
-            logger.warning(f'Already running: {self.process_watchers}')
+            logger.warning(f"Already running: {self.process_watchers}")
             return
 
         cmd_parts = shlex.split(self.command)
-        cmd_parts.append(data['action'])
-        cmd_parts.append('directory' if data['is_folder'] else 'file')
-        cmd_parts.append(self.get_mapping_path(data['path']))
-        if removed_path := data.get('removed_path'):
+        cmd_parts.append(data.action)
+        cmd_parts.append("directory" if data.is_folder else "file")
+        cmd_parts.append(self.get_mapping_path(data.path))
+        if removed_path := data.removed_path:
             cmd_parts.append(self.get_mapping_path(removed_path))
-        logger.info(f'Command: {cmd_parts}')
+        logger.info(f"Command: {cmd_parts}")
 
         process = subprocess.Popen(cmd_parts)
         if self.wait_for_process:
             try:
                 process.wait(timeout=self.timeout)
             except:
-                logger.exception(data['path'])
+                logger.exception(data.path)
         else:
-            task = asyncio.create_task(watch_process(process, self.stop_event, timeout=self.timeout))
-            task.set_name(data['path'])
+            task = asyncio.create_task(
+                watch_process(process, self.stop_event, timeout=self.timeout)
+            )
+            task.set_name(data.path)
             self.process_watchers.add(task)
             task.add_done_callback(self.process_watchers.discard)

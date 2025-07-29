@@ -3,3 +3,5 @@ google-auth
 httplib2
 pyyaml
 requests
+pydantic
+pydantic_settings

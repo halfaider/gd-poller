@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gd_poller"
+version = "0.6.25"
+dynamic = ["dependencies"]
+
+[project.scripts]
+gd-poller = "gd_poller.cli:main"
+
+[tool.setuptools]
+packages = [
+    "gd_poller"
+]
+
+[tool.setuptools.dynamic]
+dependencies = { file = "requirements.txt" }
