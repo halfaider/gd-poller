@@ -12,7 +12,6 @@ import subprocess
 from typing import Any, Iterable, Callable, Sequence
 from collections import OrderedDict
 
-from click import group
 import requests
 
 logger = logging.getLogger(__name__)
