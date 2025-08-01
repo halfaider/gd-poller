@@ -30,7 +30,7 @@ async def async_main(settings_file: str | os.PathLike | None = None) -> None:
         set_logger(
             level=settings.logging.level,
             format=settings.logging.format,
-            date_format=settings.logging.date_format,
+            datefmt=settings.logging.date_format,
             redacted_patterns=settings.logging.redacted_patterns,
             redacted_substitute=settings.logging.redacted_substitute,
         )

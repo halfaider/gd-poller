@@ -17,7 +17,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
 }
 
 
@@ -247,7 +247,7 @@ async def check_tasks(tasks: list[asyncio.Task], interval: int = 60) -> None:
 def set_logger(
     level: str = None,
     format: str = None,
-    date_format: str = None,
+    datefmt: str = None,
     redacted_patterns: Iterable = None,
     redacted_substitute: str = None,
 ) -> None:
@@ -262,13 +262,14 @@ def set_logger(
         },
         "formatters": {
             "default": {
-                "format": "%(asctime)s,%(msecs)03d %(levelname)-8s %(message)s ... %(filename)s:%(lineno)d",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
+                "format": format
+                or "%(asctime)s,%(msecs)03d %(levelname)-8s %(message)s ... %(filename)s:%(lineno)d",
+                "datefmt": datefmt or "%Y-%m-%d %H:%M:%S",
             },
         },
         "loggers": {
             __package__: {
-                "level": "DEBUG",
+                "level": getattr(logging, (level or "info").upper(), logging.INFO),
                 "handlers": ["console"],
                 "propagate": False,
             },
@@ -276,28 +277,22 @@ def set_logger(
         "filters": {
             "redacted": {
                 "()": f"{RedactingFilter.__module__}.{RedactingFilter.__name__}",
-                "patterns": [
-                    r"apikey=(.{10})",
-                    r'["]apikey["]: ["](.{10})["]',
-                    r'["]X-Plex-Token["]: ["](.{20})["]',
-                    r'["]X-Plex-Token=(.{20})["]',
-                    r"webhooks/(.+)/(.+):\s{",
-                ],
-                "substitute": "<REDACTED>",
+                "patterns": (
+                    redacted_patterns
+                    if redacted_patterns is not None
+                    else [
+                        r"apikey=(.{10})",
+                        r'["]apikey["]: ["](.{10})["]',
+                        r'["]X-Plex-Token["]: ["](.{20})["]',
+                        r'["]X-Plex-Token=(.{20})["]',
+                        r"webhooks/(.+)/(.+):\s{",
+                    ]
+                ),
+                "substitute": redacted_substitute or "<REDACTED>",
             },
         },
     }
     try:
-        level = getattr(logging, (level or "info").upper(), logging.INFO)
-        default_logging_config["loggers"][__package__]["level"] = logging.DEBUG
-        if redacted_patterns:
-            default_logging_config["filters"]["redacted"][
-                "patterns"
-            ] = redacted_patterns
-        if redacted_substitute:
-            default_logging_config["filters"]["redacted"][
-                "substitute"
-            ] = redacted_substitute
         logging.config.dictConfig(default_logging_config)
     except Exception as e:
         logger.warning(f"로깅 설정 실패: {e}", exc_info=True)
@@ -305,7 +300,7 @@ def set_logger(
             level=level or logging.DEBUG,
             format=format
             or "%(asctime)s,%(msecs)03d|%(levelname)8s| %(message)s <%(filename)s:%(lineno)d#%(funcName)s>",
-            datefmt=date_format or "%Y-%m-%dT%H:%M:%S",
+            datefmt=datefmt or "%Y-%m-%dT%H:%M:%S",
         )
 
 
