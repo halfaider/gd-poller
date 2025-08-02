@@ -4,7 +4,7 @@ import datetime
 import functools
 from urllib import parse
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic_settings import (
@@ -51,7 +51,7 @@ class LoggingConfig(BaseModel):
     level: str
     format: str
     date_format: str
-    redacted_patterns: Sequence[str]
+    redacted_patterns: tuple[str, ...]
     redacted_substitute: str
 
 
@@ -63,7 +63,7 @@ class GoogleDriveTokenConfig(BaseModel):
 
 
 class GoogleDriveConfig(BaseModel):
-    scopes: Sequence[str]
+    scopes: tuple[str, ...]
     token: GoogleDriveTokenConfig
     cache_enable: bool
     cache_ttl: int
@@ -84,19 +84,10 @@ class GlobalConfig(BaseModel):
     task_check_interval: int = -1
     page_size: int = 100
     ignore_folder: bool = True
-    patterns: Sequence[str] = (r".*",)
-    ignore_patterns: Sequence[str] = ()
-    actions: Sequence[str] = ()
+    patterns: tuple[str, ...] = (r".*",)
+    ignore_patterns: tuple[str, ...] = ()
+    actions: tuple[str, ...] = ()
     buffer_interval: int = 30
-
-    def model_post_init(self, context: Any, /) -> None:
-        """override"""
-        if self.patterns is not None:
-            self.patterns = tuple(self.patterns)
-        if self.ignore_patterns is not None:
-            self.ignore_patterns = tuple(self.ignore_patterns)
-        if self.actions is not None:
-            self.actions = tuple(self.actions)
 
 
 class DispatcherConfig(BaseModel):
@@ -111,29 +102,19 @@ class DispatcherConfig(BaseModel):
 
 
 class PollerConfig(GlobalConfig):
-    targets: Sequence[str]
+    targets: tuple[str, ...]
     name: str = None
-    dispatchers: Sequence[DispatcherConfig] = None
+    dispatchers: tuple[DispatcherConfig, ...] = (DispatcherConfig(),)
     polling_interval: int = None
     polling_delay: int = None
     dispatch_interval: int = None
     task_check_interval: int = None
     page_size: int = None
     ignore_folder: bool = None
-    patterns: Sequence[str] = None
-    ignore_patterns: Sequence[str] = None
-    actions: Sequence[str] = None
+    patterns: tuple[str, ...] = None
+    ignore_patterns: tuple[str, ...] = None
+    actions: tuple[str, ...] = None
     buffer_interval: int = None
-
-    def model_post_init(self, context: Any, /) -> None:
-        """override"""
-        super().model_post_init(context)
-        if self.targets is not None:
-            self.targets = tuple(self.targets)
-        if not self.dispatchers:
-            self.dispatchers = (DispatcherConfig(),)
-        else:
-            self.dispatchers = tuple(self.dispatchers)
 
 
 class MergedYamlSettingsSource(YamlConfigSettingsSource):
@@ -214,7 +195,7 @@ class AppSettings(GlobalConfig, _BaseSettings):
     google_drive: GoogleDriveConfig = Field(
         default_factory=get_default_google_drive_settings
     )
-    pollers: Sequence[PollerConfig] = ()
+    pollers: tuple[PollerConfig, ...] = ()
     logging: LoggingConfig = Field(default_factory=get_default_logging_settings)
     model_config = SettingsConfigDict(
         yaml_file=(
