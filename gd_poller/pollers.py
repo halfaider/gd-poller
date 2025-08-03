@@ -310,7 +310,7 @@ class ChangePoller(GoogleDrivePoller):
 class ActivityPoller(GoogleDrivePoller):
 
     def __init__(self, *args: Any, **kwds: Any):
-        super(ActivityPoller, self).__init__(*args, **kwds)
+        super().__init__(*args, **kwds)
         self.resource = self.drive.api_activity.activity()
 
     async def dispatch(self) -> None:

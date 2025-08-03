@@ -211,7 +211,7 @@ class GoogleDrive(Api):
         cache_maxsize: int = 64,
         cache_ttl: int = 600,
     ):
-        super(GoogleDrive, self).__init__(
+        super().__init__(
             cache_enable=cache_enable, cache_maxsize=cache_maxsize, cache_ttl=cache_ttl
         )
         self._token = token
@@ -342,7 +342,7 @@ class Rclone(Api):
     password = None
 
     def __init__(self, url: str) -> None:
-        super(Rclone, self).__init__(url)
+        super().__init__(url)
         url = urllib.parse.urlparse(url)
         if not url.netloc or not url.scheme:
             raise Exception(f"Rclone RC 리모트 주소를 입력하세요: {url}")
@@ -452,7 +452,7 @@ class Plex(Api):
     token = None
 
     def __init__(self, url: str, token: str) -> None:
-        super(Plex, self).__init__(url)
+        super().__init__(url)
         self.token = token.strip()
 
     def adjust_api(self, api_data: dict) -> None:
@@ -511,7 +511,7 @@ class Kavita(Api):
     refresh_token = None
 
     def __init__(self, url: str, apikey: str) -> None:
-        super(Kavita, self).__init__(url)
+        super().__init__(url)
         self.apikey = apikey.strip()
         # self.set_token()
 
@@ -573,7 +573,7 @@ class Discord(Api):
     webhook_token = None
 
     def __init__(self, url: str, webhook_id: str, webhook_token: str) -> None:
-        super(Discord, self).__init__(url)
+        super().__init__(url)
         self.webhook_id = webhook_id
         self.webhook_token = webhook_token
 
@@ -609,7 +609,7 @@ class Flaskfarm(Api):
     apikey = None
 
     def __init__(self, url: str, apikey: str) -> None:
-        super(Flaskfarm, self).__init__(url)
+        super().__init__(url)
         self.apikey = apikey.strip()
 
     @Api.http_api("/gds_tool/api/fp/broadcast", interval=1.5)
@@ -638,7 +638,7 @@ class FlaskfarmaiderBot(Api):
     apikey = None
 
     def __init__(self, url: str, apikey: str) -> None:
-        super(FlaskfarmaiderBot, self).__init__(url)
+        super().__init__(url)
         self.apikey = apikey.strip()
 
     @Api.http_api("/api/broadcast", method="POST")

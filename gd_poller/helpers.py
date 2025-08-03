@@ -119,14 +119,14 @@ class HelperSession(requests.Session):
     def __init__(
         self, headers: dict = None, auth: tuple = None, proxies: dict = None
     ) -> None:
-        super(HelperSession, self).__init__()
+        super().__init__()
         self.headers.update(DEFAULT_HEADERS)
         if headers:
             self.headers.update(headers)
 
     def request(self, method: str, url: str, **kwds: Any) -> requests.Response:
         """override"""
-        return super(HelperSession, self).request(method, url, **kwds)
+        return super().request(method, url, **kwds)
 
 
 def request(method: str, url: str, **kwds: Any) -> requests.Response:

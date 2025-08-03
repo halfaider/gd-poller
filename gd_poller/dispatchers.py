@@ -50,7 +50,7 @@ class Dispatcher(ABC):
 class BufferedDispatcher(Dispatcher):
 
     def __init__(self, **kwds: Any) -> None:
-        super(BufferedDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.folder_buffer = FolderBuffer()
 
     async def dispatch(self, data: ActivityData) -> None:
@@ -92,7 +92,7 @@ class DummyDispatcher(Dispatcher):
 class KavitaDispatcher(BufferedDispatcher):
 
     def __init__(self, url: str = None, apikey: str = None, **kwds: Any) -> None:
-        super(KavitaDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.kavita = Kavita(url, apikey)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
@@ -132,7 +132,7 @@ class KavitaDispatcher(BufferedDispatcher):
 class FlaskfarmDispatcher(Dispatcher):
 
     def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
-        super(FlaskfarmDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.flaskfarm = Flaskfarm(url, apikey)
 
 
@@ -199,7 +199,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
 class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
 
     def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
-        super(GDSToolDispatcher, self).__init__(url, apikey, **kwds)
+        super().__init__(url, apikey, **kwds)
 
     async def broadcast(self, path: str, mode: str) -> None:
         """override"""
@@ -209,7 +209,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
 class FlaskfarmaiderDispatcher(GDSBroadcastDispatcher):
 
     def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
-        super(FlaskfarmaiderDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.bot = FlaskfarmaiderBot(url, apikey)
 
     async def broadcast(self, path: str, mode: str) -> None:
@@ -259,7 +259,7 @@ class DiscordDispatcher(Dispatcher):
         colors: dict = None,
         **kwds: Any,
     ) -> None:
-        super(DiscordDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         if colors:
             self.COLORS.update(colors)
         self.discord = Discord(url, webhook_id, webhook_token)
@@ -316,7 +316,7 @@ class DiscordDispatcher(Dispatcher):
 class RcloneDispatcher(Dispatcher):
 
     def __init__(self, url: str = None, **kwds: Any) -> None:
-        super(RcloneDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.rclone = Rclone(url)
 
     async def dispatch(self, data: ActivityData) -> None:
@@ -336,7 +336,7 @@ class RcloneDispatcher(Dispatcher):
 class PlexDispatcher(Dispatcher):
 
     def __init__(self, url: str = None, token: str = None, **kwds: Any) -> None:
-        super(PlexDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.plex = Plex(url, token)
 
     async def dispatch(self, data: ActivityData) -> None:
@@ -358,7 +358,7 @@ class PlexDispatcher(Dispatcher):
 class MultiPlexRcloneDispatcher(BufferedDispatcher):
 
     def __init__(self, rclones: list = [], plexes: list = [], **kwds: Any) -> None:
-        super(MultiPlexRcloneDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.rclones = tuple(RcloneDispatcher(**rclone) for rclone in rclones)
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
 
@@ -408,7 +408,7 @@ class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
     ) -> None:
         rclones = [{"url": url, "mappings": mappings}]
         plexes = [{"url": plex_url, "token": plex_token, "mappings": plex_mappings}]
-        super(PlexRcloneDispatcher, self).__init__(
+        super().__init__(
             rclones=rclones, plexes=plexes, **kwds
         )
 
@@ -423,7 +423,7 @@ class CommandDispatcher(Dispatcher):
         timeout: int = 300,
         **kwds: Any,
     ) -> None:
-        super(CommandDispatcher, self).__init__(**kwds)
+        super().__init__(**kwds)
         self.command = command
         self.wait_for_process = wait_for_process
         self.drop_during_process = drop_during_process
