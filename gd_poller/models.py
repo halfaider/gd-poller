@@ -228,21 +228,21 @@ class AppSettings(GlobalConfig, _BaseSettings):
 
 @functools.total_ordering
 class ActivityData(BaseModel):
-    activity: dict
-    timestamp: datetime.datetime
-    timestamp_text: str = None
-    priority: float = 0.0  # timestamp()
+    activity: dict | None = None
     # title, name, tymimeType
-    target: tuple[str, str, str]
-    action: str
+    target: tuple[str, str, str] | None = None
+    action: str | None = None
     action_detail: str | tuple | list | None = None
-    ancestor: str = None
-    root: str = None
+    priority: float = 0.0  # timestamp()
+    timestamp: datetime.datetime | None = None
+    timestamp_text: str | None = None
+    ancestor: str | None = None
+    root: str | None = None
     path: str | None = None
     removed_path: str | None = None
-    link: str = None
+    link: str | None = None
     is_folder: bool = False
-    poller: str = None
+    poller: str | None = None
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ActivityData):

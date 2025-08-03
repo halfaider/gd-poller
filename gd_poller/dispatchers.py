@@ -1,12 +1,12 @@
 import shlex
 import logging
-import pathlib
 import asyncio
 import traceback
 import threading
 import subprocess
 from abc import ABC, abstractmethod
 from typing import Any
+from pathlib import Path
 
 from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot
 from .helpers import FolderBuffer, parse_mappings, map_path, watch_process
@@ -54,16 +54,27 @@ class BufferedDispatcher(Dispatcher):
         self.folder_buffer = FolderBuffer()
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
         if removed_path := data.removed_path:
             self.folder_buffer.put(removed_path, "delete", data.is_folder)
         self.folder_buffer.put(data.path, data.action, data.is_folder)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        """
+        ```
+        item = (
+            "/parent/path",
+            {
+                "action": {
+                    ("file", "name"),
+                    ("folder", "name"),
+                }
+            }
+        )
+        ```
+        """
         logger.debug(item)
 
     async def on_start(self) -> None:
-        """override"""
         while not self.stop_event.is_set():
             """
             처리중에 데이터가 계속 put되면 interval 의미가 없어짐
@@ -85,7 +96,6 @@ class BufferedDispatcher(Dispatcher):
 class DummyDispatcher(Dispatcher):
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
         logger.info(f"DummyDispatcher: {data}")
 
 
@@ -96,9 +106,8 @@ class KavitaDispatcher(BufferedDispatcher):
         self.kavita = Kavita(url, apikey)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        """override"""
         logger.debug(f"Kavita buffer: {item}")
-        parent = pathlib.Path(item[0])
+        parent = Path(item[0])
         types, names = zip(
             *(each for values in item[1].values() for each in values), strict=True
         )
@@ -122,7 +131,6 @@ class KavitaDispatcher(BufferedDispatcher):
                 break
 
     async def scan_folder(self, path: str) -> int:
-        """override"""
         result = self.kavita.api_library_scan_folder(path)
         status_code = result.get("status_code")
         logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
@@ -142,9 +150,8 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
     INFO_EXTENSIONS = (".json", ".yaml", ".yml")
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        """override"""
         logger.debug(f"GDSTool buffer: {item}")
-        parent = pathlib.Path(item[0])
+        parent = Path(item[0])
         targets: list[tuple[str, str]] = []
         # REMOVE 처리
         if deletes := item[1].pop("delete", None):
@@ -174,7 +181,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             info_files = []
             for type_, name in item[1][action]:
                 mode = "ADD"
-                target = pathlib.Path(parent / name)
+                target = Path(parent / name)
                 if type_ == "file" and target.suffix.lower() in self.INFO_EXTENSIONS:
                     bucket = info_files
                     mode = "REFRESH"
@@ -202,7 +209,6 @@ class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
         super().__init__(url, apikey, **kwds)
 
     async def broadcast(self, path: str, mode: str) -> None:
-        """override"""
         self.flaskfarm.gds_tool_fp_broadcast(path, mode)
 
 
@@ -213,17 +219,15 @@ class FlaskfarmaiderDispatcher(GDSBroadcastDispatcher):
         self.bot = FlaskfarmaiderBot(url, apikey)
 
     async def broadcast(self, path: str, mode: str) -> None:
-        """override"""
         self.bot.api_broadcast(path, mode)
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
         scan_targets = []
         target_path = self.get_mapping_path(data.path)
-        if pathlib.Path(target_path).suffix.lower() in (".json", ".yaml", ".yml"):
+        if Path(target_path).suffix.lower() in (".json", ".yaml", ".yml"):
             mode = "REFRESH"
         else:
             if data.action == "delete":
@@ -265,7 +269,6 @@ class DiscordDispatcher(Dispatcher):
         self.discord = Discord(url, webhook_id, webhook_token)
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
         embed = {
             "color": self.COLORS.get(data.action, self.COLORS["default"]),
             "author": {
@@ -320,13 +323,12 @@ class RcloneDispatcher(Dispatcher):
         self.rclone = Rclone(url)
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
-        remote_path = pathlib.Path(self.get_mapping_path(data.path))
+        remote_path = Path(self.get_mapping_path(data.path))
         if data.action == "delete":
             self.rclone.forget(str(remote_path), data.is_folder)
             return
         if removed_path := data.removed_path:
-            removed_remote_path = pathlib.Path(self.get_mapping_path(removed_path))
+            removed_remote_path = Path(self.get_mapping_path(removed_path))
             self.rclone.forget(str(removed_remote_path), data.is_folder)
         target_path = str(remote_path) if data.is_folder else str(remote_path.parent)
         self.rclone.forget(target_path, True)
@@ -340,12 +342,11 @@ class PlexDispatcher(Dispatcher):
         self.plex = Plex(url, token)
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
         targets = set()
-        plex_path = pathlib.Path(self.get_mapping_path(data.path))
+        plex_path = Path(self.get_mapping_path(data.path))
         targets.add(str(plex_path) if data.is_folder else str(plex_path.parent))
         if removed_path := data.removed_path:
-            removed_plex_path = pathlib.Path(self.get_mapping_path(removed_path))
+            removed_plex_path = Path(self.get_mapping_path(removed_path))
             targets.add(
                 str(removed_plex_path)
                 if data.is_folder
@@ -363,9 +364,8 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        """override"""
         logger.debug(f"PlexRclone buffer: {item}")
-        parent = pathlib.Path(item[0])
+        parent = Path(item[0])
         if self.rclones and (deletes := item[1].get("delete")):
             types, names = zip(*deletes, strict=True)
             if "file" in types and len(types) > 1:
@@ -377,9 +377,9 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         for dispatcher in self.rclones:
             for target in deleted_targets:
                 await dispatcher.dispatch(
-                    {"action": "delete", "path": target, "is_folder": True}
+                    ActivityData(action="delete", path=str(target), is_folder=True)
                 )
-            await dispatcher.dispatch({"path": str(parent), "is_folder": True})
+            await dispatcher.dispatch(ActivityData(path=str(parent), is_folder=True))
         if not self.plexes:
             return
         types, names = zip(
@@ -391,7 +391,7 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
             folders = (str(parent / name) for name in names)
         for dispatcher in self.plexes:
             for target in folders:
-                await dispatcher.dispatch({"path": target, "is_folder": True})
+                await dispatcher.dispatch(ActivityData(path=target, is_folder=True))
 
 
 class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
@@ -408,9 +408,7 @@ class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
     ) -> None:
         rclones = [{"url": url, "mappings": mappings}]
         plexes = [{"url": plex_url, "token": plex_token, "mappings": plex_mappings}]
-        super().__init__(
-            rclones=rclones, plexes=plexes, **kwds
-        )
+        super().__init__(rclones=rclones, plexes=plexes, **kwds)
 
 
 class CommandDispatcher(Dispatcher):
@@ -431,7 +429,6 @@ class CommandDispatcher(Dispatcher):
         self.process_watchers = set()
 
     async def dispatch(self, data: ActivityData) -> None:
-        """override"""
         if self.drop_during_process and bool(self.process_watchers):
             logger.warning(f"Already running: {self.process_watchers}")
             return
