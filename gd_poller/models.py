@@ -70,7 +70,6 @@ class GoogleDriveConfig(BaseModel):
     cache_maxsize: int
 
     def model_post_init(self, context: Any, /) -> None:
-        """override"""
         self.scopes = tuple(
             parse.urljoin("https://www.googleapis.com/auth/", scope)
             for scope in self.scopes
@@ -123,7 +122,6 @@ class MergedYamlSettingsSource(YamlConfigSettingsSource):
     """
 
     def __call__(self) -> dict[str, Any]:
-        """override"""
         user_config = super().__call__()
         default_config = {}
         for field_name, field in self.settings_cls.model_fields.items():
@@ -134,7 +132,6 @@ class MergedYamlSettingsSource(YamlConfigSettingsSource):
         return deep_merge(default_config, user_config)
 
     def _read_files(self, files: str | os.PathLike | None) -> dict[str, Any]:
-        """override"""
         if files is None:
             return {}
         if isinstance(files, (str, os.PathLike)):
@@ -175,7 +172,6 @@ class _BaseSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """override"""
         merged_yaml_settings = MergedYamlSettingsSource(settings_cls)
         # 설정값 적용 순서
         return (
@@ -209,7 +205,6 @@ class AppSettings(GlobalConfig, _BaseSettings):
     )
 
     def model_post_init(self, context: Any, /) -> None:
-        """override"""
         super().model_post_init(context)
         self.pollers = tuple(self.pollers)
         global_filed_names = GlobalConfig.model_fields.keys()
@@ -228,21 +223,21 @@ class AppSettings(GlobalConfig, _BaseSettings):
 
 @functools.total_ordering
 class ActivityData(BaseModel):
-    activity: dict | None = None
+    activity: dict = {}
     # title, name, tymimeType
-    target: tuple[str, str, str] | None = None
-    action: str | None = None
+    target: tuple[str, str | None, str | None] = ()
+    action: str = ""
     action_detail: str | tuple | list | None = None
     priority: float = 0.0  # timestamp()
-    timestamp: datetime.datetime | None = None
-    timestamp_text: str | None = None
-    ancestor: str | None = None
-    root: str | None = None
-    path: str | None = None
-    removed_path: str | None = None
-    link: str | None = None
+    timestamp: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
+    timestamp_text: str = ""
+    ancestor: str = ""
+    root: str  = ""
+    path: str  = ""
+    removed_path: str = ""
+    link: str  = ""
     is_folder: bool = False
-    poller: str | None = None
+    poller: str = ""
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ActivityData):

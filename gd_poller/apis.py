@@ -6,7 +6,7 @@ import inspect
 import traceback
 import functools
 import urllib.parse
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Callable, Sequence
 
 from httplib2 import Http
 from google_auth_httplib2 import AuthorizedHttp
@@ -359,7 +359,6 @@ class Rclone(Api):
             raise
 
     def adjust_api(self, api_data: dict) -> None:
-        """override"""
         api_data["auth"] = (
             (self.user, self.password) if self.user and self.password else None
         )
@@ -456,7 +455,6 @@ class Plex(Api):
         self.token = token.strip()
 
     def adjust_api(self, api_data: dict) -> None:
-        """override"""
         if "params" not in api_data:
             api_data["params"] = {}
         api_data["params"]["X-Plex-Token"] = self.token
@@ -516,7 +514,6 @@ class Kavita(Api):
         # self.set_token()
 
     def adjust_api(self, api_data: dict) -> None:
-        """override"""
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, */*",
@@ -578,7 +575,6 @@ class Discord(Api):
         self.webhook_token = webhook_token
 
     def adjust_api(self, api_data: dict) -> None:
-        """override"""
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, */*",
@@ -646,3 +642,23 @@ class FlaskfarmaiderBot(Api):
         if not path.startswith("/ROOT/GDRIVE"):
             raise Exception(f'The path must start with "/ROOT/GDRIVE/": {path}')
         return {"data": {"path": path, "mode": mode, "apikey": self.apikey}}
+
+
+class Jellyfin(Api):
+
+    apikey = None
+
+    def __init__(self, url: str, apikey: str) -> None:
+        super().__init__(url)
+        self.apikey = apikey.strip()
+
+    @Api.http_api("/Library/Media/Updated", method="POST")
+    def api_library_media_updated(
+        self, path: str = None, update_type: str = None, updates: Sequence = ()
+    ) -> dict:
+        if path and update_type:
+            updates = ({"Path": path, "UpdateType": update_type},)
+        return {"json": {"Updates": updates}}
+
+    def adjust_api(self, api_data: dict) -> None:
+        api_data["headers"] = {"Authorization": f"MediaBrowser Token={self.apikey}"}

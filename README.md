@@ -336,6 +336,69 @@ pollers:
 |             timeout |      | 커맨드가 이 시간동안 계속 실행될 경우 타임아웃으로 간주하고 프로세스를 종료합니다.    |
 |            mappings |      | 커맨드에 전달하기 전에 경로를 변환합니다.                                             |
 
+#### JellyfinDispatcher
+
+```yaml
+- class: JellyfinDispatcher
+  url: "http://jellyfin:8096"
+  apikey: "a1b2bc3d4f5g6h7i8j9k0l1m2n3o4p5q"
+  mappings:
+    - "/GDRIVE:/jellyfin/gds2/GDRIVE"
+```
+
+젤리핀에 스캔 요청을 보냅니다.
+|키워드||설명|
+| ---: | :--: | --- |
+|url|필요|젤리핀 서버 주소|
+|apikey|필요|젤리핀 서버 API Key|
+|mappings||`tragets`에서 지정한 경로를 변환|
+
+#### MultiServerDispatcher
+
+```yaml
+- class: MultiServerDispatcher
+  rclones:
+    - url: "http://username:password@localhost:5275"
+      mappings:
+        - "/GDRIVE:/GDRIVE"
+  plexes:
+    - url: "http://plex-1:32400"
+      token: "1bCdEfG0HiJkLmNoP2Qr"
+      mappings:
+        - "/GDRIVE:/plex1/gds2/GDRIVE"
+    - url: "http://plex-2:32400"
+      token: "2bCdEfG0HiJkLmNoP2Qr"
+      mappings:
+        - "/GDRIVE:/plex2/gds2/GDRIVE"
+    - url: "http://plex-3:32400"
+      token: "3bCdEfG0HiJkLmNoP2Qr"
+      mappings:
+        - "/GDRIVE:/plex3/gds2/GDRIVE"
+  kavitas:
+    - url: 'http://kavita:5000'
+      apikey: '123abcde-001f-002g-003h-ijklmnop0987'
+      mappings:
+        - '/GDRIVE:/mnt/gds2/GDRIVE'
+  jellyfins:
+    - url: 'http://jellyfin:8096'
+      apikey: 'a1b2bc3d4f5g6h7i8j9k0l1m2n3o4p5q'
+      mappings:
+        - '/GDRIVE:/jellyfin/gds2/GDRIVE'
+```
+
+`rclones`에서 지정한 리모트 서버에 순차적으로 `vfs/refresh`를 요청한 뒤 각각의 서버에 스캔을 요청합니다.
+|키워드||설명|
+| ---: | :--: | --- |
+|rclones||`vfs/refresh`를 요청할 리모트 서버 목록|
+|plexes||스캔을 요청할 플렉스 서버 목록|
+|kavitas||스캔을 요청할 플렉스 서버 목록|
+|jellyfins||스캔을 요청할 플렉스 서버 목록|
+|url|필요|각 서버의 URL 주소|
+|token|필요|플렉스 서버의 X-Plex-Token|
+|apikey|필요|서버의 API Key|
+|mappings||`tragets`에서 지정한 경로를 변환|
+
+
 ### Global 설정
 
 ```yaml

@@ -5,10 +5,10 @@ import traceback
 import threading
 import subprocess
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Sequence
 from pathlib import Path
 
-from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot
+from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot, Jellyfin
 from .helpers import FolderBuffer, parse_mappings, map_path, watch_process
 from .models import ActivityData
 
@@ -67,7 +67,9 @@ class BufferedDispatcher(Dispatcher):
                 "action": {
                     ("file", "name"),
                     ("folder", "name"),
-                }
+                    ...
+                },
+                ...
             }
         )
         ```
@@ -106,7 +108,7 @@ class KavitaDispatcher(BufferedDispatcher):
         self.kavita = Kavita(url, apikey)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"Kavita buffer: {item}")
+        logger.debug(f"Kavita: {item}")
         parent = Path(item[0])
         types, names = zip(
             *(each for values in item[1].values() for each in values), strict=True
@@ -150,7 +152,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
     INFO_EXTENSIONS = (".json", ".yaml", ".yml")
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"GDSTool buffer: {item}")
+        logger.debug(f"GDSTool: {item}")
         parent = Path(item[0])
         targets: list[tuple[str, str]] = []
         # REMOVE 처리
@@ -364,7 +366,7 @@ class MultiPlexRcloneDispatcher(BufferedDispatcher):
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
 
     async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"PlexRclone buffer: {item}")
+        logger.debug(f"MultiPlexRclone: {item}")
         parent = Path(item[0])
         if self.rclones and (deletes := item[1].get("delete")):
             types, names = zip(*deletes, strict=True)
@@ -454,3 +456,67 @@ class CommandDispatcher(Dispatcher):
             task.set_name(data.path)
             self.process_watchers.add(task)
             task.add_done_callback(self.process_watchers.discard)
+
+
+class JellyfinDispatcher(BufferedDispatcher):
+
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
+        super().__init__(**kwds)
+        self.jellyfin = Jellyfin(url, apikey)
+
+    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        logger.debug(f"Jellyfin: {item}")
+        parent = Path(item[0])
+
+        updates = []
+        for action, paths in item[1].items():
+            for path in paths:
+                if path[0] == "folder":
+                    continue
+                """
+                Jellyfin: action
+
+                Created: create, move
+                Modified: edit
+                Deleted: delete
+                """
+                match action:
+                    case "delete":
+                        update_type = "Deleted"
+                    case "create" | "move":
+                        update_type = "Created"
+                    case "edit":
+                        update_type = "Modified"
+                    case _:
+                        logger.warning(f"The action is not supported: {action}")
+                        continue
+                updates.append(
+                    {
+                        "Path": self.get_mapping_path(str(parent / path[1])),
+                        "UpdateType": update_type,
+                    }
+                )
+        result = self.jellyfin.api_library_media_updated(updates=updates)
+        status_code = result.get("status_code")
+        logger.info(f"Jellyfin: updates={updates} {status_code=}")
+
+
+class MultiServerDispatcher(MultiPlexRcloneDispatcher):
+
+    def __init__(
+        self,
+        rclones: Sequence = (),
+        plexes: Sequence = (),
+        jellyfins: Sequence = (),
+        kavitas: Sequence = (),
+        **kwds: Any,
+    ) -> None:
+        super().__init__(rclones, plexes, **kwds)
+        self.jellyfins = tuple(JellyfinDispatcher(**jellyfin) for jellyfin in jellyfins)
+        self.kavitas = tuple(KavitaDispatcher(**kavita) for kavita in kavitas)
+
+    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
+        super().buffered_dispatch(item)
+        jellyfin_tasks = tuple(dispatcher.buffered_dispatch(item) for dispatcher in self.jellyfins)
+        kavita_tasks = tuple(dispatcher.buffered_dispatch(item) for dispatcher in self.kavitas)
+        await asyncio.gather(*jellyfin_tasks, *kavita_tasks)

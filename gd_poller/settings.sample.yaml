@@ -80,16 +80,14 @@ pollers:
 #        url: 'http://kavita:5000'
 #        apikey: '123abcde-001f-002g-003h-ijklmnop0987'
 
-#  - name: '여러 Rclone RC 및 plex 서버를 한번에 지정할 경우'
+#  - name: '여러 서버를 한번에 지정할 경우'
 #    targets:
-#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO/방송중'
+#      - '폴더_ID#/GDRIVE/VIDEO/방송중'
 #    dispatchers:
-#      - class: MultiPlexRcloneDispatcher
+#      - class: MultiServerDispatcher
 #        buffer_interval: 60
 #        rclones:
 #          - url: 'http://username:password@localhost:5275'
-#            mappings:
-#              - '/host1/gds/GDRIVE:/GDRIVE'
 #        plexes:
 #          - url: 'http://plex-1:32400'
 #            token: '1bCdEfG0HiJkLmNoP2Qr'
@@ -103,6 +101,16 @@ pollers:
 #            token: '3bCdEfG0HiJkLmNoP2Qr'
 #            mappings:
 #              - '/GDRIVE:/plex3/gds2/GDRIVE'
+#        kavitas:
+#          - url: 'http://kavita:5000'
+#            apikey: '123abcde-001f-002g-003h-ijklmnop0987'
+#            mappings:
+#              - '/GDRIVE:/mnt/gds2/GDRIVE'
+#        jellyfins:
+#          - url: 'http://jellyfin:8096'
+#            apikey: 'a1b2bc3d4f5g6h7i8j9k0l1m2n3o4p5q'
+#            mappings:
+#              - '/GDRIVE:/jellyfin/gds2/GDRIVE'
 
 #  - name: '쉘 커맨드 실행용'
 #    targets:

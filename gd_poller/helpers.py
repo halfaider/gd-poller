@@ -95,7 +95,19 @@ class FolderBuffer:
                 action: set([("folder" if is_directory else "file", target.name)])
             }
 
-    def pop(self) -> tuple[str, dict[str, set[tuple[str, str]]]]:
+    def pop(self) -> tuple[str, dict[str, set[tuple[str, str]]]] | None:
+        """
+        Returns:
+            tuple: (
+                "/parent/path",
+                {
+                    "action": {
+                        ("file", "name"),
+                        ("folder", "name"),
+                    }
+                }
+            )
+        """
         if self.buffer:
             return self.buffer.popitem(last=False)
 
@@ -125,7 +137,6 @@ class HelperSession(requests.Session):
             self.headers.update(headers)
 
     def request(self, method: str, url: str, **kwds: Any) -> requests.Response:
-        """override"""
         return super().request(method, url, **kwds)
 
 
