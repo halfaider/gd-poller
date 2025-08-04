@@ -5,7 +5,6 @@ import pathlib
 import logging
 import asyncio
 import datetime
-import traceback
 from abc import ABC, abstractmethod
 from typing import Any, Iterable
 
@@ -200,8 +199,8 @@ class GoogleDrivePoller(ABC):
     def dispatch_interval(self, dispatch_interval: int) -> None:
         try:
             self._dispatch_interval = int(dispatch_interval)
-        except:
-            logger.error(traceback.format_exc())
+        except Exception as e:
+            logger.exception(e)
             self._dispatch_interval = 1
 
     @property
@@ -278,8 +277,8 @@ class GoogleDrivePoller(ABC):
                 task.print_stack()
                 try:
                     task.cancel()
-                except:
-                    logger.error(traceback.format_exc())
+                except Exception as e:
+                    logger.exception(e)
         self._dispatch_queue = None
         self._tasks = None
 
@@ -374,8 +373,8 @@ class ActivityPoller(GoogleDrivePoller):
                         removed_parent_id, data.ancestor, data.root
                     )
                     data.removed_path = str(pathlib.Path(removed_path, data.target[0]))
-                except:
-                    logger.error(traceback.format_exc())
+                except Exception as e:
+                    logger.exception(e)
             elif data.action == "rename" and data.action_detail:
                 logger.debug(f"Renamed from: {data.action_detail}")
                 data.removed_path = str(

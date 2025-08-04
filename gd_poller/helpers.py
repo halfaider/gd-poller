@@ -10,7 +10,6 @@ import traceback
 import threading
 import subprocess
 from typing import Any, Iterable, Callable, Sequence
-from collections import OrderedDict
 
 import requests
 
@@ -67,55 +66,6 @@ class RedactingFilter(logging.Filter):
             last_end_in_match = end_in_match
         result_parts.append(full_match_text[last_end_in_match:])
         return "".join(result_parts)
-
-
-class FolderBuffer:
-    """
-    'parent_path': {
-        'action1': {('file' | 'folder', 'name1'), ('file' | 'folder', 'name2')},
-        'action2': {('file' | 'folder', 'name3'), ('file' | 'folder', 'name4')}
-    }
-    """
-
-    def __init__(self) -> None:
-        self.buffer = OrderedDict()
-
-    def put(
-        self, path: str, action: str = "create", is_directory: bool = False
-    ) -> None:
-        target = pathlib.Path(path)
-        key = str(target.parent)
-        if key in self.buffer:
-            self.buffer[key].setdefault(action, set())
-            self.buffer[key][action].add(
-                ("folder" if is_directory else "file", target.name)
-            )
-        else:
-            self.buffer[key] = {
-                action: set([("folder" if is_directory else "file", target.name)])
-            }
-
-    def pop(self) -> tuple[str, dict[str, set[tuple[str, str]]]] | None:
-        """
-        Returns:
-            tuple: (
-                "/parent/path",
-                {
-                    "action": {
-                        ("file", "name"),
-                        ("folder", "name"),
-                    }
-                }
-            )
-        """
-        if self.buffer:
-            return self.buffer.popitem(last=False)
-
-    def __len__(self) -> int:
-        return len(self.buffer)
-
-    def __getitem__(self, key: str) -> dict:
-        return self.buffer.get(key)
 
 
 def get_traceback_response(tb: str) -> requests.Response:
@@ -228,8 +178,8 @@ async def watch_process(
     try:
         if process.poll() is None:
             process.kill()
-    except:
-        logger.error(traceback.format_exc())
+    except Exception as e:
+        logger.exception(e)
 
 
 async def check_tasks(tasks: list[asyncio.Task], interval: int = 60) -> None:

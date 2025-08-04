@@ -3,7 +3,6 @@ import html
 import pathlib
 import logging
 import inspect
-import traceback
 import functools
 import urllib.parse
 from typing import Any, Optional, Callable, Sequence
@@ -332,7 +331,7 @@ class GoogleDrive(Api):
                 f'Google: error=HttpError status_code={error.resp.status} reason="{html.escape(error._get_reason().strip())}" uri="{error.uri}"'
             )
         else:
-            logger.error(traceback.format_exc())
+            logger.exception(error)
 
 
 class Rclone(Api):
@@ -427,7 +426,7 @@ class Rclone(Api):
                 result = self.api_vfs_refresh().get("json") or {}
             else:
                 result = self.api_vfs_refresh(parent.as_posix()).get("json") or {}
-            logger.info(f"Rclone: {result}")
+            logger.debug(f"Rclone: {result}")
             if (
                 (result.get("result") or {}).get(parent.as_posix()) or ""
             ).lower() == "ok":

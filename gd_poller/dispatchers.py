@@ -1,15 +1,14 @@
 import shlex
 import logging
 import asyncio
-import traceback
-import threading
 import subprocess
 from abc import ABC, abstractmethod
 from typing import Any, Sequence
 from pathlib import Path
+from collections import OrderedDict
 
 from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot, Jellyfin
-from .helpers import FolderBuffer, parse_mappings, map_path, watch_process
+from .helpers import parse_mappings, map_path, watch_process
 from .models import ActivityData
 
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 class Dispatcher(ABC):
 
     def __init__(self, *, mappings: list = None, buffer_interval: int = 30) -> None:
-        self.stop_event = threading.Event()
+        self.stop_event = asyncio.Event()
         self.mappings = parse_mappings(mappings) if mappings else None
         self.buffer_interval = buffer_interval
 
@@ -51,30 +50,26 @@ class BufferedDispatcher(Dispatcher):
 
     def __init__(self, **kwds: Any) -> None:
         super().__init__(**kwds)
-        self.folder_buffer = FolderBuffer()
+        self.folder_buffer: OrderedDict[str, list[ActivityData]] = OrderedDict()
 
     async def dispatch(self, data: ActivityData) -> None:
-        if removed_path := data.removed_path:
-            self.folder_buffer.put(removed_path, "delete", data.is_folder)
-        self.folder_buffer.put(data.path, data.action, data.is_folder)
+        data_list = [data]
+        # removed_path와 move를 분리
+        if data.removed_path:
+            data_delete = data.model_copy()
+            data_delete.action = "delete"
+            data_delete.removed_path = ""
+            data_list.append(data_delete)
+            data.removed_path = ""
+        for data_ in data_list:
+            target = Path(data_.path)
+            key = str(target.parent)
+            self.folder_buffer.setdefault(key, list())
+            self.folder_buffer[key].append(data_)
 
-    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        """
-        ```
-        item = (
-            "/parent/path",
-            {
-                "action": {
-                    ("file", "name"),
-                    ("folder", "name"),
-                    ...
-                },
-                ...
-            }
-        )
-        ```
-        """
-        logger.debug(item)
+    @abstractmethod
+    async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
+        pass
 
     async def on_start(self) -> None:
         while not self.stop_event.is_set():
@@ -86,9 +81,9 @@ class BufferedDispatcher(Dispatcher):
                 if self.stop_event.is_set():
                     break
                 try:
-                    await self.buffered_dispatch(self.folder_buffer.pop())
-                except:
-                    logger.error(traceback.format_exc())
+                    await self.buffered_dispatch(self.folder_buffer.popitem(last=False))
+                except Exception as e:
+                    logger.exception(e)
             for _ in range(self.buffer_interval):
                 if self.stop_event.is_set():
                     break
@@ -107,18 +102,16 @@ class KavitaDispatcher(BufferedDispatcher):
         super().__init__(**kwds)
         self.kavita = Kavita(url, apikey)
 
-    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"Kavita: {item}")
-        parent = Path(item[0])
-        types, names = zip(
-            *(each for values in item[1].values() for each in values), strict=True
+    async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
+        parent, activities = item
+        logger.debug(f"Kavita: {parent}")
+        is_folders, paths = zip(
+            *((act.is_folder, act.path) for act in activities), strict=True
         )
-        if "file" in types:
-            folders = (str(parent),)
-        else:
-            folders = (str(parent / name) for name in names)
-        for target in folders:
-            kavita_path = self.get_mapping_path(target)
+        if False in is_folders:
+            paths = (parent,)
+        for path in paths:
+            kavita_path = self.get_mapping_path(path)
             for _ in range(5):
                 if (status := await self.scan_folder(kavita_path)) == 401:
                     self.kavita.set_token()
@@ -148,55 +141,64 @@ class FlaskfarmDispatcher(Dispatcher):
 
 class GDSBroadcastDispatcher(BufferedDispatcher):
 
-    ALLOWED_ACTIONS = ("create", "move", "rename", "restore")
+    ALLOWED_ACTIONS = ("create", "move", "rename", "restore", "delete")
     INFO_EXTENSIONS = (".json", ".yaml", ".yml")
 
-    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"GDSTool: {item}")
-        parent = Path(item[0])
-        targets: list[tuple[str, str]] = []
-        # REMOVE 처리
-        if deletes := item[1].pop("delete", None):
-            types, names = zip(*deletes, strict=True)
-            if "file" in types and len(types) > 1:
-                targets.append((str(parent), "REMOVE_FOLDER"))
-                for name in names:
-                    logger.debug(
-                        f'Skipped: {str(parent / name)} reason="Multiple items"'
-                    )
-            else:
-                for type_, name in deletes:
-                    targets.append(
-                        (
-                            str(parent / name),
-                            "REMOVE_FILE" if type_ == "file" else "REMOVE_FOLDER",
-                        )
-                    )
-        # ADD 처리
-        for action in item[1]:
-            if action not in self.ALLOWED_ACTIONS:
-                logger.warning(f'No applicable action: {action} in "{str(parent)}"')
+    async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
+        parent, activities = item
+        logger.debug(f"Broadcast: {parent}")
+        # 한번에 처리되기 때문에 파일의 상태는 마지막 activity로 결정
+        acts_by_path = {act.path: act for act in activities}
+        deletes = {"file": [], "folder": []}
+        files = []
+        folders = []
+        info_files = []
+        for path in acts_by_path:
+            act: ActivityData = acts_by_path[path]
+            if act.action not in self.ALLOWED_ACTIONS:
+                logger.warning(f'No applicable action: {act.action} in "{parent}"')
                 continue
-            # files, folders, info_files 순서로 처리
-            files = []
-            folders = []
-            info_files = []
-            for type_, name in item[1][action]:
-                mode = "ADD"
-                target = Path(parent / name)
-                if type_ == "file" and target.suffix.lower() in self.INFO_EXTENSIONS:
-                    bucket = info_files
-                    mode = "REFRESH"
-                elif type_ == "folder":
-                    bucket = folders
+            target = Path(path)
+            suffix = target.suffix.lower()
+            mode = "ADD"
+            if act.action == "delete":
+                if suffix in self.INFO_EXTENSIONS:
+                    logger.debug(
+                        f'Ignore deletion of an info file: {act.action} - {target.name} in "{parent}"'
+                    )
                 else:
-                    bucket = files
-                bucket.append((str(target), mode))
-            for idx, target in enumerate(files + folders + info_files):
-                if idx > 0:
-                    logger.debug(f'Skipped: {target[0]} reason="Multiple items"')
-                    continue
-                targets.append(target)
+                    deletes["folder" if act.is_folder else "file"].append(act)
+                continue
+            elif not act.is_folder and suffix in self.INFO_EXTENSIONS:
+                bucket = info_files
+                mode = "REFRESH"
+            elif act.is_folder:
+                bucket = folders
+            else:
+                bucket = files
+            bucket.append((mode, act))
+        targets: list[tuple[str, str]] = []
+        # deletes, files, folders, info_files 순서로 처리
+        length = len(deletes["file"]) + len(deletes["folder"])
+        if deletes["file"] and length > 1:
+            targets.append((parent, "REMOVE_FOLDER"))
+            for act_list in deletes.values():
+                for act in act_list:
+                    logger.debug(
+                        f"Skipped: action='{act.action}' name='{act.target[0]}' reason='Multiple items'"
+                    )
+        else:
+            for act_list in deletes.values():
+                for act in act_list:
+                    targets.append(
+                        (act.path, "REMOVE_FOLDER" if act.is_folder else "REMOVE_FILE")
+                    )
+        for idx, target in enumerate(files + folders + info_files):
+            mode, act = target
+            if idx > 0:
+                logger.debug(f'Skipped: {act.target[0]} reason="Multiple items"')
+                continue
+            targets.append((act.path, mode))
         for target in targets:
             await self.broadcast(self.get_mapping_path(target[0]), target[1])
 
@@ -358,45 +360,80 @@ class PlexDispatcher(Dispatcher):
             self.plex.scan(p_, is_directory=True)
 
 
-class MultiPlexRcloneDispatcher(BufferedDispatcher):
+class MultiServerDispatcher(BufferedDispatcher):
 
-    def __init__(self, rclones: list = [], plexes: list = [], **kwds: Any) -> None:
+    def __init__(
+        self,
+        rclones: Sequence = (),
+        plexes: Sequence = (),
+        jellyfins: Sequence = (),
+        kavitas: Sequence = (),
+        **kwds: Any,
+    ) -> None:
         super().__init__(**kwds)
         self.rclones = tuple(RcloneDispatcher(**rclone) for rclone in rclones)
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
+        self.jellyfins = tuple(JellyfinDispatcher(**jellyfin) for jellyfin in jellyfins)
+        self.kavitas = tuple(KavitaDispatcher(**kavita) for kavita in kavitas)
 
-    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"MultiPlexRclone: {item}")
-        parent = Path(item[0])
-        if self.rclones and (deletes := item[1].get("delete")):
-            types, names = zip(*deletes, strict=True)
-            if "file" in types and len(types) > 1:
-                deleted_targets = (str(parent),)
-            else:
-                deleted_targets = (str(parent / name) for name in names)
+    async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
+        parent, activities = item
+        logger.debug(f"MultiServer: {parent}")
+        acts_by_path = {act.path: act for act in activities}
+        act_list = list(acts_by_path.values())
+        acts_by_type = {"file": [], "folder": []}
+        deletes = {"file": [], "folder": []}
+        parent_activity = ActivityData(path=parent, is_folder=True)
+        for path in acts_by_path:
+            act: ActivityData = acts_by_path[path]
+            acts_by_type["folder" if act.is_folder else "file"].append(act)
+            if not act.action == "delete":
+                continue
+            deletes["folder" if act.is_folder else "file"].append(act)
+        deletes_length = len(deletes["file"]) + len(deletes["folder"])
+        if deletes["file"] and deletes_length > 1:
+            deleted_targets = (
+                ActivityData(path=parent, is_folder=True, action="delete"),
+            )
         else:
-            deleted_targets = tuple()
+            deleted_targets = tuple(
+                act for act_list in deletes.values() for act in act_list
+            )
+
+        rclone_tasks = []
         for dispatcher in self.rclones:
-            for target in deleted_targets:
-                await dispatcher.dispatch(
-                    ActivityData(action="delete", path=str(target), is_folder=True)
-                )
-            await dispatcher.dispatch(ActivityData(path=str(parent), is_folder=True))
-        if not self.plexes:
-            return
-        types, names = zip(
-            *(each for values in item[1].values() for each in values), strict=True
+            for act in deleted_targets:
+                rclone_tasks.append(dispatcher.dispatch(act))
+            rclone_tasks.append(dispatcher.dispatch(parent_activity))
+        await asyncio.gather(*rclone_tasks)
+
+        plex_tasks = []
+        if self.plexes:
+            if acts_by_type["file"]:
+                plex_targets = (parent_activity,)
+            else:
+                plex_targets = act_list
+            for dispatcher in self.plexes:
+                for act in plex_targets:
+                    plex_tasks.append(dispatcher.dispatch(act))
+
+        jellyfin_tasks = tuple(
+            dispatcher.buffered_dispatch((parent, act_list))
+            for dispatcher in self.jellyfins
         )
-        if "file" in types:
-            folders = (str(parent),)
-        else:
-            folders = (str(parent / name) for name in names)
-        for dispatcher in self.plexes:
-            for target in folders:
-                await dispatcher.dispatch(ActivityData(path=target, is_folder=True))
+        kavita_tasks = tuple(
+            dispatcher.buffered_dispatch((parent, act_list))
+            for dispatcher in self.kavitas
+        )
+
+        await asyncio.gather(*plex_tasks, *jellyfin_tasks, *kavita_tasks)
 
 
-class PlexRcloneDispatcher(MultiPlexRcloneDispatcher):
+class MultiPlexRcloneDispatcher(MultiServerDispatcher):
+    """DEPRECATED"""
+
+
+class PlexRcloneDispatcher(MultiServerDispatcher):
     """DEPRECATED"""
 
     def __init__(
@@ -443,13 +480,16 @@ class CommandDispatcher(Dispatcher):
             cmd_parts.append(self.get_mapping_path(removed_path))
         logger.info(f"Command: {cmd_parts}")
 
-        process = subprocess.Popen(cmd_parts)
         if self.wait_for_process:
+            process = await asyncio.create_subprocess_exec(*cmd_parts)
             try:
-                process.wait(timeout=self.timeout)
-            except:
+                await asyncio.wait_for(process.wait(), timeout=self.timeout)
+            except Exception:
                 logger.exception(data.path)
+            finally:
+                process.kill()
         else:
+            process = subprocess.Popen(cmd_parts)
             task = asyncio.create_task(
                 watch_process(process, self.stop_event, timeout=self.timeout)
             )
@@ -464,59 +504,39 @@ class JellyfinDispatcher(BufferedDispatcher):
         super().__init__(**kwds)
         self.jellyfin = Jellyfin(url, apikey)
 
-    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        logger.debug(f"Jellyfin: {item}")
-        parent = Path(item[0])
+    async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
+        parent, activities = item
+        logger.debug(f"Jellyfin: {parent}")
+        acts_by_path = {act.path: act for act in activities}
 
         updates = []
-        for action, paths in item[1].items():
-            for path in paths:
-                if path[0] == "folder":
-                    continue
-                """
-                Jellyfin: action
+        for act in acts_by_path.values():
+            if act.is_folder:
+                continue
+            """
+            Jellyfin : action
 
-                Created: create, move
-                Modified: edit
-                Deleted: delete
-                """
-                match action:
-                    case "delete":
-                        update_type = "Deleted"
-                    case "create" | "move":
-                        update_type = "Created"
-                    case "edit":
-                        update_type = "Modified"
-                    case _:
-                        logger.warning(f"The action is not supported: {action}")
-                        continue
-                updates.append(
-                    {
-                        "Path": self.get_mapping_path(str(parent / path[1])),
-                        "UpdateType": update_type,
-                    }
-                )
+            Created : create, move
+            Modified : edit
+            Deleted : delete
+            """
+            match act.action:
+                case "delete":
+                    update_type = "Deleted"
+                case "create" | "move":
+                    update_type = "Created"
+                case "edit":
+                    update_type = "Modified"
+                case _:
+                    logger.warning(f"This action is not supported: {act.action}")
+                    continue
+            updates.append(
+                {
+                    "Path": self.get_mapping_path(act.path),
+                    "UpdateType": update_type,
+                }
+            )
+
         result = self.jellyfin.api_library_media_updated(updates=updates)
         status_code = result.get("status_code")
         logger.info(f"Jellyfin: updates={updates} {status_code=}")
-
-
-class MultiServerDispatcher(MultiPlexRcloneDispatcher):
-
-    def __init__(
-        self,
-        rclones: Sequence = (),
-        plexes: Sequence = (),
-        jellyfins: Sequence = (),
-        kavitas: Sequence = (),
-        **kwds: Any,
-    ) -> None:
-        super().__init__(rclones, plexes, **kwds)
-        self.jellyfins = tuple(JellyfinDispatcher(**jellyfin) for jellyfin in jellyfins)
-        self.kavitas = tuple(KavitaDispatcher(**kavita) for kavita in kavitas)
-
-    async def buffered_dispatch(self, item: tuple[str, dict]) -> None:
-        super().buffered_dispatch(item)
-        jellyfin_tasks = tuple(dispatcher.buffered_dispatch(item) for dispatcher in self.jellyfins)
-        kavita_tasks = tuple(dispatcher.buffered_dispatch(item) for dispatcher in self.kavitas)
-        await asyncio.gather(*jellyfin_tasks, *kavita_tasks)
