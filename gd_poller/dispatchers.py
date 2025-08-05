@@ -432,6 +432,10 @@ class MultiServerDispatcher(BufferedDispatcher):
 class MultiPlexRcloneDispatcher(MultiServerDispatcher):
     """DEPRECATED"""
 
+    def __init__(self, *args, **kwds) -> None:
+        super().__init__(*args, **kwds)
+        logger.warning("DEPRECATED: Use MultiServerDispatcher instead.")
+
 
 class PlexRcloneDispatcher(MultiServerDispatcher):
     """DEPRECATED"""
@@ -448,6 +452,7 @@ class PlexRcloneDispatcher(MultiServerDispatcher):
         rclones = [{"url": url, "mappings": mappings}]
         plexes = [{"url": plex_url, "token": plex_token, "mappings": plex_mappings}]
         super().__init__(rclones=rclones, plexes=plexes, **kwds)
+        logger.warning("DEPRECATED: Use MultiServerDispatcher instead.")
 
 
 class CommandDispatcher(Dispatcher):

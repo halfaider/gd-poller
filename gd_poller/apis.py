@@ -497,8 +497,10 @@ class Plex(Api):
     def scan(self, path: str, force: bool = False, is_directory: bool = True) -> None:
         scan_target = path if is_directory else str(pathlib.Path(path).parent)
         section = self.get_section_by_path(scan_target) or -1
-        logger.info(f"Plex: {scan_target=} {section=}")
-        self.api_refresh(section, scan_target, force)
+        result = self.api_refresh(section, scan_target, force)
+        logger.info(
+            f"Plex: {scan_target=} {section=} status_code='{result.get('status_code')}'"
+        )
 
 
 class Kavita(Api):
