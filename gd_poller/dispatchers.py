@@ -142,7 +142,7 @@ class FlaskfarmDispatcher(Dispatcher):
 class GDSBroadcastDispatcher(BufferedDispatcher):
 
     ALLOWED_ACTIONS = ("create", "move", "rename", "restore", "delete")
-    INFO_EXTENSIONS = (".json", ".yaml", ".yml")
+    INFO_EXTENSIONS = (".json", ".yaml", ".yml", ".nfo")
 
     async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
         parent, activities = item
@@ -156,7 +156,12 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
         for path in acts_by_path:
             act: ActivityData = acts_by_path[path]
             if act.action not in self.ALLOWED_ACTIONS:
-                logger.warning(f'No applicable action: {act.action} in "{parent}"')
+                logger.warning(f"No applicable action: {act.action} in '{parent}'")
+                continue
+            if act.action == "create" and act.is_folder:
+                logger.warning(
+                    f"Skipped: name='{act.target[0]}' reason='Folder created'"
+                )
                 continue
             target = Path(path)
             suffix = target.suffix.lower()
@@ -164,9 +169,10 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             if act.action == "delete":
                 if suffix in self.INFO_EXTENSIONS:
                     logger.debug(
-                        f'Ignore deletion of an info file: {act.action} - {target.name} in "{parent}"'
+                        f"Ignore deletion of an info file: {act.action} - {target.name} in '{parent}'"
                     )
                 else:
+                    # 폴더를 delete/move할 경우 자식 파일/폴더의 activity가 발생되지 않을 수 있음
                     deletes["folder" if act.is_folder else "file"].append(act)
                 continue
             elif not act.is_folder and suffix in self.INFO_EXTENSIONS:
@@ -517,6 +523,7 @@ class JellyfinDispatcher(BufferedDispatcher):
         updates = []
         for act in acts_by_path.values():
             if act.is_folder:
+                logger.warning(f"Skipped: name='{act.target[0]}' reason='Folder'")
                 continue
             """
             Jellyfin : action
@@ -541,7 +548,9 @@ class JellyfinDispatcher(BufferedDispatcher):
                     "UpdateType": update_type,
                 }
             )
-
-        result = self.jellyfin.api_library_media_updated(updates=updates)
-        status_code = result.get("status_code")
-        logger.info(f"Jellyfin: updates={updates} {status_code=}")
+        if updates:
+            result = self.jellyfin.api_library_media_updated(updates=updates)
+            status_code = result.get("status_code")
+            logger.info(f"Jellyfin: updates={updates} {status_code=}")
+        else:
+            logger.info("No updates to send...")
