@@ -8,7 +8,7 @@ import pydantic
 from . import dispatchers
 from .apis import GoogleDrive
 from .pollers import ActivityPoller
-from .helpers import check_tasks, set_logger
+from .helpers.helpers import check_tasks, set_logger
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)

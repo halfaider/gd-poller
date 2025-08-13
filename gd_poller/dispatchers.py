@@ -8,7 +8,7 @@ from pathlib import Path
 from collections import OrderedDict
 
 from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot, Jellyfin
-from .helpers import parse_mappings, map_path, watch_process
+from .helpers.helpers import parse_mappings, map_path, watch_process
 from .models import ActivityData
 
 

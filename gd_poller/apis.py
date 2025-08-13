@@ -14,7 +14,7 @@ from googleapiclient.discovery import build, Resource
 from googleapiclient.http import HttpRequest
 from googleapiclient import errors
 
-from .helpers import apply_cache, get_ttl_hash, parse_response, HelperSession
+from .helpers.helpers import apply_cache, get_ttl_hash, parse_response, HelperSession
 
 logger = logging.getLogger(__name__)
 

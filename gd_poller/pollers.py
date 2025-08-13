@@ -11,7 +11,7 @@ from typing import Any, Iterable
 from . import dispatchers
 from .apis import GoogleDrive
 from .models import ActivityData
-from .helpers import await_sync, check_tasks
+from .helpers.helpers import await_sync, check_tasks
 
 logger = logging.getLogger(__name__)
 
