@@ -2,13 +2,11 @@ import logging
 import datetime
 import functools
 from urllib import parse
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, ConfigDict
-from pydantic_settings import SettingsConfigDict
 
-from .helpers.helpers import _BaseSettings
+from .helpers.models import _BaseSettings
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +118,6 @@ class AppSettings(GlobalConfig, _BaseSettings):
     )
     pollers: tuple[PollerConfig, ...] = ()
     logging: LoggingConfig = Field(default_factory=get_default_logging_settings)
-    model_config = SettingsConfigDict(
-        yaml_file=(
-            Path(__file__).with_name("settings.yaml"),
-            Path.cwd() / "settings.yaml",
-            Path(__file__).with_name("config.yaml"),
-            Path.cwd() / "config.yaml",
-        ),
-        yaml_file_encoding="utf-8",
-        extra="ignore",
-    )
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
