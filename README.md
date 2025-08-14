@@ -57,6 +57,7 @@ gd-poller /data/db/gd-poller.yaml
 ### 패키지 모듈을 지정해서 실행
 
 ```bash
+cd gd-poller
 python3 -m gd_poller.cli /path/to/settings.yaml
 ```
 
@@ -353,6 +354,24 @@ pollers:
 |apikey|필요|젤리핀 서버 API Key|
 |mappings||`tragets`에서 지정한 경로를 변환|
 
+
+#### StashDispatcher
+
+```yaml
+- class: StashDispatcher
+  url: "http://stash:9999"
+  apikey: "eyabcdefghijklmnopqrstuvwxyz12345678.eyJa1b2c3d3f4g5h6jiasdfklzxcvmdskafjlkwerwoeiruqwoiruoasdfasdfasf334.1231231dfdfsdfwe23f3-23kdkdkdkvjvnj4j4302q0"
+  mappings:
+    - "/GDRIVE:/stash/gds2/GDRIVE"
+```
+
+Stash 앱에 스캔 요청을 보냅니다.
+|키워드||설명|
+| ---: | :--: | --- |
+|url|필요|Stash 서버 주소|
+|apikey|필요|Stash 서버 API Key|
+|mappings||`tragets`에서 지정한 경로를 변환|
+
 #### MultiServerDispatcher
 
 ```yaml
@@ -384,6 +403,11 @@ pollers:
       apikey: 'a1b2bc3d4f5g6h7i8j9k0l1m2n3o4p5q'
       mappings:
         - '/GDRIVE:/jellyfin/gds2/GDRIVE'
+  stashes:
+    - url: 'http://stash:9999'
+      apikey: 'eyabcdefghijklmnopqrstuvwxyz12345678.eyJa1b2c3d3f4g5h6jiasdfklzxcvmdskafjlkwerwoeiruqwoiruoasdfasdfasf334.1231231dfdfsdfwe23f3-23kdkdkdkvjvnj4j4302q0'
+      mappings:
+        - '/GDRIVE:/stash/gds2/GDRIVE'
 ```
 
 `rclones`에서 지정한 리모트 서버에 순차적으로 `vfs/refresh`를 요청한 뒤 각각의 서버에 스캔을 요청합니다.
@@ -424,9 +448,9 @@ logging: ...
 
 각 `poller`마다 반복되는 값은 글로벌로 설정하면 우선 적용됩니다. 설정값은 아래 순서로 덮어씌우기 합니다.
 
-```
-기본 설정 > Global 설정 > Poller 설정
-```
+- 기본 설정
+- Global 설정
+- Poller 설정
 
 ### Logging 설정
 
