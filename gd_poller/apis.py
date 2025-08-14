@@ -664,3 +664,51 @@ class Jellyfin(Api):
 
     def adjust_api(self, api_data: dict) -> None:
         api_data["headers"] = {"Authorization": f"MediaBrowser Token={self.apikey}"}
+
+
+class Stash(Api):
+
+    apikey = None
+
+    def __init__(self, url: str, apikey: str) -> None:
+        super().__init__(url)
+        self.apikey = apikey.strip()
+
+    def adjust_api(self, api_data: dict) -> None:
+        api_data["headers"] = {"ApiKey": self.apikey}
+
+    @Api.http_api("/graphql", method="POST")
+    def api_gql(self, payload: dict) -> dict:
+        return {"json": payload}
+
+    def metadata_scan(
+        self,
+        paths: Sequence[str],
+        rescan: bool = False,
+        preview: bool = False,
+        cover: bool = True,
+        image_preview: bool = False,
+        hash: bool = False,
+        clip_preview: bool = False,
+        sprite: bool = False,
+        thumbnail: bool = False,
+    ) -> dict:
+        return self.api_gql(
+            {
+                "operationName": "MetadataScan",
+                "variables": {
+                    "input": {
+                        "rescan": rescan,
+                        "scanGenerateClipPreviews": clip_preview,
+                        "scanGenerateCovers": cover,
+                        "scanGenerateImagePreviews": image_preview,
+                        "scanGeneratePhashes": hash,
+                        "scanGeneratePreviews": preview,
+                        "scanGenerateSprites": sprite,
+                        "scanGenerateThumbnails": thumbnail,
+                        "paths": paths
+                    }
+                },
+                "query":"mutation MetadataScan($input: ScanMetadataInput!){metadataScan(input: $input)}"
+            }
+        )

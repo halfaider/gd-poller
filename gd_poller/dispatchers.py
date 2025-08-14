@@ -7,7 +7,7 @@ from typing import Any, Sequence
 from pathlib import Path
 from collections import OrderedDict
 
-from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot, Jellyfin
+from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot, Jellyfin, Stash
 from .helpers.helpers import parse_mappings, map_path, watch_process
 from .models import ActivityData
 
@@ -374,6 +374,7 @@ class MultiServerDispatcher(BufferedDispatcher):
         plexes: Sequence = (),
         jellyfins: Sequence = (),
         kavitas: Sequence = (),
+        stashes: Sequence = (),
         **kwds: Any,
     ) -> None:
         super().__init__(**kwds)
@@ -381,6 +382,7 @@ class MultiServerDispatcher(BufferedDispatcher):
         self.plexes = tuple(PlexDispatcher(**plex) for plex in plexes)
         self.jellyfins = tuple(JellyfinDispatcher(**jellyfin) for jellyfin in jellyfins)
         self.kavitas = tuple(KavitaDispatcher(**kavita) for kavita in kavitas)
+        self.stashes = tuple(StashDispatcher(**stash) for stash in stashes)
 
     async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
         parent, activities = item
@@ -431,8 +433,12 @@ class MultiServerDispatcher(BufferedDispatcher):
             dispatcher.buffered_dispatch((parent, act_list))
             for dispatcher in self.kavitas
         )
+        stash_tasks = tuple(
+            dispatcher.buffered_dispatch((parent, act_list))
+            for dispatcher in self.stashes
+        )
 
-        await asyncio.gather(*plex_tasks, *jellyfin_tasks, *kavita_tasks)
+        await asyncio.gather(*plex_tasks, *jellyfin_tasks, *kavita_tasks, *stash_tasks)
 
 
 class MultiPlexRcloneDispatcher(MultiServerDispatcher):
@@ -554,3 +560,17 @@ class JellyfinDispatcher(BufferedDispatcher):
             logger.info(f"Jellyfin: updates={updates} {status_code=}")
         else:
             logger.info("No updates to send...")
+
+
+class StashDispatcher(BufferedDispatcher):
+
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
+        super().__init__(**kwds)
+        self.stash = Stash(url, apikey)
+
+    async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
+        parent, activities = item
+        logger.debug(f"Stash: {parent}")
+        result = self.stash.metadata_scan(paths=(self.get_mapping_path(parent),))
+        status_code = result.get("status_code")
+        logger.info(f"Stash: target='{parent}' {status_code=}")
