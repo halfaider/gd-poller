@@ -192,7 +192,7 @@ pollers:
     dispatchers:
       - class: DummyDispatcher
       - class: DiscordDispatcher
-      - class: MultiPlexRcloneDispatcher
+      - class: MultiServerDispatcher
       - class: CommandDispatcher
 ```
 
@@ -268,38 +268,6 @@ pollers:
 |apikey|필요|flaskfarm의 apikey|
 |mappings||flaskfarm의 로컬 경로로 변환|
 
-#### MultiPlexRcloneDispatcher
-
-```yaml
-- class: MultiPlexRcloneDispatcher
-  rclones:
-    - url: "http://username:password@localhost:5275"
-      mappings:
-        - "/GDRIVE:/GDRIVE"
-  plexes:
-    - url: "http://plex-1:32400"
-      token: "1bCdEfG0HiJkLmNoP2Qr"
-      mappings:
-        - "/GDRIVE:/plex1/gds2/GDRIVE"
-    - url: "http://plex-2:32400"
-      token: "2bCdEfG0HiJkLmNoP2Qr"
-      mappings:
-        - "/GDRIVE:/plex2/gds2/GDRIVE"
-    - url: "http://plex-3:32400"
-      token: "3bCdEfG0HiJkLmNoP2Qr"
-      mappings:
-        - "/GDRIVE:/plex3/gds2/GDRIVE"
-```
-
-`rclones`에서 지정한 리모트 서버에 순차적으로 `vfs/refresh`를 요청한 뒤 `plexes`에서 지정한 플렉스 서버로 스캔을 요청합니다.
-|키워드||설명|
-| ---: | :--: | --- |
-|rclones||`vfs/refresh`를 요청할 리모트 서버 목록|
-|plexes||스캔을 요청할 플렉스 서버 목록|
-|url|필요|각 서버의 URL 주소|
-|token|필요|플렉스 서버의 X-Plex-Token|
-|mappings||`tragets`에서 지정한 경로를 변환|
-
 #### KavitaDispatcher
 
 ```yaml
@@ -353,7 +321,6 @@ pollers:
 |url|필요|젤리핀 서버 주소|
 |apikey|필요|젤리핀 서버 API Key|
 |mappings||`tragets`에서 지정한 경로를 변환|
-
 
 #### StashDispatcher
 
