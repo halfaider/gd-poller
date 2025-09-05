@@ -17,10 +17,9 @@ logger = logging.getLogger(__name__)
 
 class Dispatcher(ABC):
 
-    def __init__(self, *, mappings: list = None, buffer_interval: int = 30) -> None:
+    def __init__(self, *, mappings: list = None) -> None:
         self.stop_event = asyncio.Event()
         self.mappings = parse_mappings(mappings) if mappings else None
-        self.buffer_interval = buffer_interval
 
     async def start(self) -> None:
         if self.stop_event.is_set():
@@ -48,8 +47,9 @@ class Dispatcher(ABC):
 
 class BufferedDispatcher(Dispatcher):
 
-    def __init__(self, **kwds: Any) -> None:
+    def __init__(self, buffer_interval: int = 30, **kwds: Any) -> None:
         super().__init__(**kwds)
+        self.buffer_interval = buffer_interval
         self.folder_buffer: OrderedDict[str, list[ActivityData]] = OrderedDict()
 
     async def dispatch(self, data: ActivityData) -> None:

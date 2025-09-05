@@ -14,6 +14,20 @@ python -m pip install --upgrade pip setuptools wheel
 pip install --src . -e "git+https://github.com/halfaider/gd-poller.git#egg=gd_poller"
 ```
 
+### 소스 코드를 직접 설치할 경우
+
+클론할 때 `--recurse-submodules` 플래그를 넣어 주세요.
+
+```bash
+git clone --recurse-submodules https://github.com/halfaider/gd-poller.git
+```
+
+소스 코드를 업데이트 할 때도 동일합니다.
+
+```bash
+git pull --recurse-submodules
+```
+
 ## 실행
 
 ### `gd-poller` 명령어로 실행
@@ -145,7 +159,7 @@ pollers:
 |    polling_interval |      | `polling` 간격입니다. API 분당 할당량이 `100`이라는 점을 감안해서 세팅하세요. (단위: 초) |
 |       polling_delay |      | `polling` 지연 시간입니다. 액티비티 조회를 `polling_delay` 시간 후에 조회합니다. 예를 들어 300초로 설정한 경우 `17:05` 까지의 액티비티는 300초 후인 `17:10` 에 조회합니다. (단위: 초) |
 |   dispatch_interval |      | `dispatch` 간격입니다. 다량의 활동 내역이 한번에 `dispatch` 되는 것을 방지하기 위한 간격입니다. (단위: 초) |
-|     buffer_interval |      | 이 시간(초) 간격으로 `dispatch`된 데이터를 수집후 동일한 폴더는 한번에 처리합니다. |
+|     buffer_interval |      | 이 시간(초) 간격으로 `dispatch`된 데이터를 수집후 동일한 폴더는 한번에 처리합니다. (일부 dispatcher만 지원) |
 |           page_size |      | 한번에 가져올 `activity` 개수입니다. `activity` 개수가 이보다 많으면 API를 다시 소모해서 다음 페이지를 요청합니다. |
 |             actions |      | 어떤 `activity`를 `dispatch`할지 설정합니다. 명시하지 않으면 모든 타입의 `activity`를 대상으로 합니다. |
 |            patterns |      | 파일의 경로가 `patterns` 리스트 중 하나라도 일치하면 `dispatch` 합니다. 패턴 형식은 정규표현식으로 작성해 주시면 됩니다. 대소문자는 구분하지 않습니다. |
@@ -250,6 +264,21 @@ pollers:
       - class: RcloneDispatcher
         url: "http://username:password@localhost:5275"
 ```
+#### PlexDispatcher
+
+```yaml
+- class: PlexDispatcher
+  url: "http://plex:32400"
+  token: "1bCdEfG0HiJkLmNoP2Qr"
+  mappings:
+    - "/GDRIVE:/plex/gds2/GDRIVE"
+```
+
+|키워드||설명|
+| -------: | :--: | ------------------------------- |
+|      url | 필요 | plex 서버의 URL 주소 |
+|    token | 필요 | plex 서버의 X-Plex-Token |
+| mappings |      | `tragets`에서 지정한 경로를 변환 |
 
 #### PlexmateDispatcher
 
@@ -274,6 +303,7 @@ pollers:
 - class: KavitaDispatcher
   url: "http://kavita:5000"
   apikey: "123abcde-001f-002g-003h-ijklmnop0987"
+  buffer_interval: 60
   mappings:
     - "/GDRIVE:/mnt/gds2/GDRIVE"
 ```
@@ -283,6 +313,7 @@ pollers:
 | ---: | :--: | --- |
 |url|필요|카비타의 API URL 주소|
 |apikey|필요|카비타의 API Key|
+|buffer_interval||동일한 폴더 끼리 처리하기 위한 버퍼 시간|
 |mappings||`tragets`에서 지정한 경로를 변환|
 
 #### CommandDispatcher
@@ -311,6 +342,7 @@ pollers:
 - class: JellyfinDispatcher
   url: "http://jellyfin:8096"
   apikey: "a1b2bc3d4f5g6h7i8j9k0l1m2n3o4p5q"
+  buffer_interval: 60
   mappings:
     - "/GDRIVE:/jellyfin/gds2/GDRIVE"
 ```
@@ -320,6 +352,7 @@ pollers:
 | ---: | :--: | --- |
 |url|필요|젤리핀 서버 주소|
 |apikey|필요|젤리핀 서버 API Key|
+|buffer_interval||동일한 폴더 끼리 처리하기 위한 버퍼 시간|
 |mappings||`tragets`에서 지정한 경로를 변환|
 
 #### StashDispatcher
@@ -328,6 +361,7 @@ pollers:
 - class: StashDispatcher
   url: "http://stash:9999"
   apikey: "eyabcdefghijklmnopqrstuvwxyz12345678.eyJa1b2c3d3f4g5h6jiasdfklzxcvmdskafjlkwerwoeiruqwoiruoasdfasdfasf334.1231231dfdfsdfwe23f3-23kdkdkdkvjvnj4j4302q0"
+  buffer_interval: 60
   mappings:
     - "/GDRIVE:/stash/gds2/GDRIVE"
 ```
@@ -337,12 +371,14 @@ Stash 앱에 스캔 요청을 보냅니다.
 | ---: | :--: | --- |
 |url|필요|Stash 서버 주소|
 |apikey|필요|Stash 서버 API Key|
+|buffer_interval||동일한 폴더 끼리 처리하기 위한 버퍼 시간|
 |mappings||`tragets`에서 지정한 경로를 변환|
 
 #### MultiServerDispatcher
 
 ```yaml
 - class: MultiServerDispatcher
+  buffer_interval: 60
   rclones:
     - url: "http://username:password@localhost:5275"
       mappings:
@@ -380,6 +416,7 @@ Stash 앱에 스캔 요청을 보냅니다.
 `rclones`에서 지정한 리모트 서버에 순차적으로 `vfs/refresh`를 요청한 뒤 각각의 서버에 스캔을 요청합니다.
 |키워드||설명|
 | ---: | :--: | --- |
+|buffer_interval||동일한 폴더 끼리 처리하기 위한 버퍼 시간|
 |rclones||`vfs/refresh`를 요청할 리모트 서버 목록|
 |plexes||스캔을 요청할 플렉스 서버 목록|
 |kavitas||스캔을 요청할 플렉스 서버 목록|
