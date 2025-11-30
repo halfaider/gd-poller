@@ -571,6 +571,22 @@ class StashDispatcher(BufferedDispatcher):
     async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
         parent, activities = item
         logger.debug(f"Stash: {parent}")
-        result = self.stash.metadata_scan(paths=(self.get_mapping_path(parent),))
-        status_code = result.get("status_code")
-        logger.info(f"Stash: target='{parent}' {status_code=}")
+        updates = []
+        deletes = []
+        acts_by_path = {act.path: act for act in activities}
+        for act in acts_by_path.values():
+            if act.is_folder:
+                logger.warning(f"Skipped: name='{act.target[0]}' reason='Folder'")
+                continue
+            if act.action == "delete":
+                deletes.append(self.get_mapping_path(act.path))
+            else:
+                updates.append(self.get_mapping_path(act.path))
+        if deletes:
+            result = self.stash.metadata_clean(paths=(self.get_mapping_path(parent),), dry_run=False)
+            status_code = result.get("status_code")
+            logger.info(f"Stash: deleted_parent={parent} {status_code=}")
+        if updates:
+            result = self.stash.metadata_scan(paths=(self.get_mapping_path(parent),))
+            status_code = result.get("status_code")
+            logger.info(f"Stash: updated_parent='{parent}' {status_code=}")

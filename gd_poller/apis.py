@@ -712,3 +712,17 @@ class Stash(Api):
                 "query":"mutation MetadataScan($input: ScanMetadataInput!){metadataScan(input: $input)}"
             }
         )
+    
+    def metadata_clean(self, paths: Sequence[str], dry_run: bool = True) -> dict:
+        return self.api_gql(
+            {
+                "operationName": "MetadataClean",
+                "variables": {
+                    "input": {
+                        "paths": paths,
+                        "dryRun": dry_run,
+                    }
+                },
+                "query":"mutation MetadataClean($input: CleanMetadataInput!){metadataClean(input: $input)}"
+            }
+        )
