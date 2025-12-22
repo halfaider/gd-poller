@@ -262,11 +262,14 @@ class GoogleDrive(Api):
 
     def get_full_path(
         self, item_id: str, ancestor_id: str = "", root: str = ""
-    ) -> tuple[str, tuple[str, str], str]:
+    ) -> tuple[str, tuple[str, str], str] | None:
         if not item_id:
-            raise Exception(f'ID를 확인하세요: "{item_id}"')
+            logger.error(f'ID를 확인하세요: "{item_id}"')
+            return None
         # do not use cache
         file = self.get_file(item_id, ttl_hash=time.time())
+        if not file:
+            return None
         web_view = file.get("webViewLink")
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
@@ -278,6 +281,8 @@ class GoogleDrive(Api):
                     get_ttl_hash(self.cache_ttl) if self.cache_enable else time.time()
                 )
                 file = self.get_file(file.get("parents")[0], ttl_hash=ttl_hash)
+                if not file:
+                    return None
                 if root and file.get("id") == ancestor_id:
                     current_path.append((root, ancestor_id))
                     break
@@ -297,8 +302,7 @@ class GoogleDrive(Api):
         item_id: str,
         fields: str = "id, name, parents, mimeType, webViewLink",
         ttl_hash: int | float = 3600,
-    ) -> dict:
-        result = {"id": item_id}
+    ) -> dict | None:
         try:
             result = (
                 self.api_drive.files()
@@ -310,9 +314,10 @@ class GoogleDrive(Api):
                 .execute()
             )
             # logger.debug(f'file={result}')
+            return result
         except Exception as e:
             self.handle_error(e)
-        return result
+            return None
 
     def get_files(self, query: str) -> dict:
         result = (
