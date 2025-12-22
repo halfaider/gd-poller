@@ -16,16 +16,15 @@ pip install --src . -e "git+https://github.com/halfaider/gd-poller.git#egg=gd_po
 
 ### 소스 코드를 직접 설치할 경우
 
-클론할 때 `--recurse-submodules` 플래그를 넣어 주세요.
-
 ```bash
-git clone --recurse-submodules https://github.com/halfaider/gd-poller.git
+git clone https://github.com/halfaider/gd-poller.git
+pip install -r gd-poller/rquirements.txt
 ```
 
-소스 코드를 업데이트 할 때도 동일합니다.
+소스 코드를 업데이트 할 경우 pull 하세요.
 
 ```bash
-git pull --recurse-submodules
+git pull
 ```
 
 ## 실행
