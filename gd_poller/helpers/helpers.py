@@ -30,6 +30,9 @@ def parse_mappings(mappings: Iterable[str]) -> list[tuple[str]]:
     mapped = []
     for mapping in mappings:
         splits = re.split(":", mapping, maxsplit=2)
+        if len(splits) < 2:
+            logger.warning(f"Invalid mapping format: {mapping}")
+            continue
         if len(splits) > 2:
             if len(splits[0]) < 2:
                 source, target = ":".join(splits[:2]), splits[-1]
@@ -50,7 +53,6 @@ def map_path(target: str, mappings: Iterable[Iterable[str]]) -> str:
 async def stop_event_loop() -> None:
     loop = asyncio.get_event_loop()
     loop.stop()
-    loop.close()
 
 
 async def await_sync(func: Callable, *args: Any, **kwds: Any) -> Any:
@@ -85,6 +87,7 @@ async def watch_process(process: subprocess.Popen, stop_flag: threading.Event, t
     try:
         if process.poll() is None:
             process.kill()
+            process.wait(timeout=60)
     except Exception as e:
         logger.exception(e)
 

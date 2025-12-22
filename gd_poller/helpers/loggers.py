@@ -87,11 +87,11 @@ def set_logger(
                     redacted_patterns
                     if redacted_patterns is not None
                     else [
-                        r"apikey=(.{10})",
-                        r'["]apikey["]: ["](.{10})["]',
-                        r'["]X-Plex-Token["]: ["](.{20})["]',
-                        r'["]X-Plex-Token=(.{20})["]',
-                        r"webhooks/(.+)/(.+):\s{",
+                        r"apikey=([^&\s'\"]+)",
+                        r"['\"]apikey['\"]\s*:\s*['\"]([^\"']+)['\"]",
+                        r"['\"]X-Plex-Token['\"]\s*:\s*['\"]([^\"']+)['\"]",
+                        r"X-Plex-Token=([^&\s'\"]+)",
+                        r"webhooks/([^/]+)/([^/]+):\s{",
                     ]
                 ),
                 "substitute": redacted_substitute or "<REDACTED>",
