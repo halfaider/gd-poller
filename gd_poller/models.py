@@ -14,14 +14,11 @@ logger = logging.getLogger(__name__)
 def get_default_logging_settings() -> dict:
     return {
         "level": "debug",
-        "format": "%(asctime)s,%(msecs)03d|%(levelname)-8s %(message)s ... %(filename)s:%(lineno)d",
+        "format": "%(asctime)s %(levelname)-8s %(message)s ... %(filename)s:%(lineno)d",
         "date_format": "%Y-%m-%dT%H:%M:%S",
         "redacted_patterns": (
-            "apikey=(.{10,36})",
-            "['\"]apikey['\"]: ['\"](.{10,36})['\"]",
-            "['\"]X-Plex-Token['\"]: ['\"](.{20})['\"]",
-            "['\"]X-Plex-Token=(.{20})['\"]",
-            "webhooks/(.+)/(.+):\\s{",
+            r"['\"]?(?:apikey|X-Plex-Token|token)['\"]?\s*[:=]\s*['\"]?([^'\"&\s,{}]+)['\"]?",
+            r"webhooks/([^/\s]+)/([^/\s]+)",
         ),
         "redacted_substitute": "<REDACTED>",
     }

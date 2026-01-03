@@ -5,8 +5,8 @@
 #task_check_interval: -1
 #page_size: 100
 #ignore_folder: true
-#patterns: [.*]
-#ignore_patterns: ['\.((json|bak|mpd|log|git/?)$|log\.)', '[/\\](\..+|bonus|extra|featurette|other|sample|screenshot|trailer|\[업로드\])s?']
+#patterns: ['.*']
+#ignore_patterns: ['\.((jpg|jpeg|png|txt|bak|mpd|log|git/?)$|log\.)', '[/\\](\..+|bonus|extra|featurette|other|sample|screenshot|trailer|[^/\\]+-trailer|\[업로드\])s?', '[/\\]VIDEO[/\\].*?m4a$']
 #actions:
 #buffer_interval: 30
 
@@ -25,14 +25,9 @@ google_drive:
 
 #logging:
 #  level: debug
-#  format: '%(asctime)s,%(msecs)03d|%(levelname)-8s %(message)s ... %(filename)s:%(lineno)d'
+#  format: '%(asctime)s %(levelname)-8s %(message)s ... %(filename)s:%(lineno)d'
 #  date_format: '%Y-%m-%dT%H:%M:%S'
-#  redacted_patterns:
-#    - "apikey=(.{10,36})"
-#    - "['\"]apikey['\"]: ['\"](.{10,36})['\"]"
-#    - "['\"]X-Plex-Token['\"]: ['\"](.{20})['\"]"
-#    - "['\"]X-Plex-Token=(.{20})['\"]"
-#    - "webhooks/(.+)/(.+):\\s{"
+#  redacted_patterns: ['[''"]?(?:apikey|X-Plex-Token|token)[''"]?\s*[:=]\s*[''"]?([^''"&\s,{}]+)[''"]?', 'webhooks/([^/\s]+)/([^/\s]+)']
 #  redacted_substitute: "<REDACTED>"
 
 pollers:
