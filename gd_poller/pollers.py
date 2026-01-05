@@ -385,10 +385,10 @@ class ActivityPoller(GoogleDrivePoller):
                 msg = f'Skipped: {name}="{path_value}" reason='
                 if not self.check_patterns(path_value, self.patterns):
                     logger.debug(msg + '"Not match with patterns"')
-                    return
+                    setattr(data, attr, None)
                 elif self.check_patterns(path_value, self.ignore_patterns):
                     logger.debug(msg + '"Match with ignore patterns"')
-                    return
+                    setattr(data, attr, None)
             # move된 경로를 접근할 수 없을 경우
             match bool(data.path), bool(data.removed_path):
                 case False, True:
