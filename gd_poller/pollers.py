@@ -399,7 +399,7 @@ class ActivityPoller(GoogleDrivePoller):
                         data.link = f'https://drive.google.com/drive/folders/{data.action_detail[1].partition("/")[-1]}'
                         data.action_detail = f"Moved but can not access: {data.target[1]}"
                 case False, False:
-                    logger.info(f"Skipped: {target_id=}")
+                    logger.info(f'Skipped: target={data.target} reason="No applicable path"')
                     return
             for dispatcher in self.dispatcher_list:
                 # activity 발생 순서대로, dispatcher 배치 순서대로
