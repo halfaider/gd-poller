@@ -158,11 +158,12 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             if act.action not in self.ALLOWED_ACTIONS:
                 logger.warning(f"No applicable action: {act.action} in '{parent}'")
                 continue
-            if act.action == "create" and act.is_folder:
-                logger.warning(
-                    f"Skipped: name='{act.target[0]}' reason='Folder created'"
-                )
-                continue
+            # 폴더를 통째로 move 하는 경우 무시 됨
+            #if act.action == "create" and act.is_folder:
+            #    logger.warning(
+            #        f"Skipped: name='{act.target[0]}' reason='Folder created'"
+            #    )
+            #    continue
             target = Path(path)
             suffix = target.suffix.lower()
             mode = "ADD"
