@@ -265,6 +265,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
     def __init__(self, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.pending_tasks: dict[str, asyncio.Task] = {}
+        self.pending_stats: dict[str, dict[str, int]] = {}
 
     async def dispatch(self, data: ActivityData) -> None:
         _, parent_id = data.parent
@@ -283,6 +284,9 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
             if parent_id is None:
                 logger.info(f"Skipped: {target_path.name} reason='No parent'")
                 return
+            stats = self.pending_stats.setdefault(parent_id, {"count": 0, "size": 0})
+            stats["count"] += 1
+            stats['size'] += getattr(data, 'size', 0) or 0
             if parent_id not in self.pending_tasks:
                 self.pending_tasks[parent_id] = asyncio.create_task(
                     self._delayed_dispatch_worker(str(target_path.parent), parent_id)
@@ -307,7 +311,8 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         try:
             interval = getattr(self, 'buffier_interval', 30)
             await asyncio.sleep(interval)
-            await asyncio.to_thread(self.bot.api_broadcast_downloader, parent_path, parent_id)
+            stats = self.pending_stats.get(parent_id) or {'count': 0, 'size': 0}
+            await asyncio.to_thread(self.bot.api_broadcast_downloader, parent_path, parent_id, file_count=stats['count'], total_size=stats['size'])
         except asyncio.CancelledError:
              logger.debug(f"Delayed dispatch cancelled: {parent_path=}")
              raise
@@ -315,12 +320,14 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
             logger.exception(e)
         finally:
             self.pending_tasks.pop(parent_id, None)
+            self.pending_stats.pop(parent_id, None)
 
     async def on_stop(self) -> None:
         for task in self.pending_tasks.values():
             task.cancel()
         if self.pending_tasks:
             await asyncio.gather(*self.pending_tasks.values(), return_exceptions=True)
+        self.pending_stats.clear()
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):

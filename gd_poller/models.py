@@ -144,13 +144,14 @@ class ActivityData(BaseModel):
     timestamp: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
     timestamp_text: str = ""
     ancestor: str = ""
-    root: str  = ""
-    path: str  = ""
+    root: str = ""
+    path: str = ""
     removed_path: str = ""
-    link: str  = ""
+    link: str = ""
     is_folder: bool = False
     poller: str = ""
     parent: tuple[str | None, str | None] = ()
+    size: int = 0
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ActivityData):

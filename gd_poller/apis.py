@@ -262,7 +262,7 @@ class GoogleDrive(Api):
 
     def get_full_path(
         self, item_id: str, ancestor_id: str = "", root: str = ""
-    ) -> tuple[str, tuple[str, str], str] | None:
+    ) -> tuple[str, tuple[str, str], str, str] | None:
         if not item_id:
             logger.error(f'ID를 확인하세요: "{item_id}"')
             return None
@@ -271,6 +271,7 @@ class GoogleDrive(Api):
         if not file:
             return None
         web_view = file.get("webViewLink")
+        size = file.get('size') or 0
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
         else:
@@ -295,12 +296,12 @@ class GoogleDrive(Api):
         parent = current_path[1] if len(current_path) > 1 else current_path[0]
         if self.cache_enable:
             logger.debug(self.get_file.cache_info())
-        return str(full_path), parent, web_view
+        return str(full_path), parent, web_view, size
 
     def get_file(
         self,
         item_id: str,
-        fields: str = "id, name, parents, mimeType, webViewLink",
+        fields: str = "id, name, parents, mimeType, webViewLink, size",
         ttl_hash: int | float = 3600,
     ) -> dict | None:
         try:
@@ -651,8 +652,8 @@ class FlaskfarmaiderBot(Api):
         return {"data": {"path": path, "mode": mode, "apikey": self.apikey}}
 
     @Api.http_api("/api/broadcasts/downloader", method="POST")
-    def api_broadcast_downloader(self, path: str, item: str) -> dict:
-        return {"data": {"path": path, "item": item, "apikey": self.apikey}}
+    def api_broadcast_downloader(self, path: str, item: str, file_count: int = 0, total_size: int = 0) -> dict:
+        return {"data": {"path": path, "item": item, "file_count": file_count, "total_size": total_size, "apikey": self.apikey}}
 
 
 class Jellyfin(Api):
