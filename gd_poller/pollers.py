@@ -387,7 +387,7 @@ class ActivityPoller(GoogleDrivePoller):
                             data.root,
                         )
                     if removed_path_info:
-                        removed_path, _, _ = removed_path_info
+                        removed_path, _, _, _ = removed_path_info
                         data.removed_path = str(
                             pathlib.Path(removed_path, data.target[0])
                         )
