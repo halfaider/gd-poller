@@ -359,13 +359,13 @@ class ActivityPoller(GoogleDrivePoller):
             web_view = None
             if path_info:
                 data.path, parent, web_view, size = path_info
+                data.size = int(size)
                 if not parent[0]:
                     logger.warning(
                         f"Could not figure out its path: id={target_id} ancestor={data.ancestor} root={data.root} parent={parent[0]}"
                     )
                     data.path = f"/unknown/{data.target[0]}"
             data.parent = parent
-            data.size = int(size)
             # url 링크
             if web_view:
                 data.link = web_view.strip()
