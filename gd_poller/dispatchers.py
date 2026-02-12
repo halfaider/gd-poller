@@ -303,7 +303,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                     return
             target_id = target[1].split("/")[-1]
             logger.info(f"Broadcast: {target_path=} {target_id=}")
-            await asyncio.to_thread(self.bot.api_broadcast_downloader, str(target_path), target_id)
+            await asyncio.to_thread(self.bot.api_broadcast_downloader, str(target_path), target_id, file_count=1, total_size=getattr(data, 'size', 0) or 0)
         else:
             ...
 
