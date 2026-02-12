@@ -240,10 +240,14 @@ class GoogleDrivePoller(ABC):
         self.tasks = []
         if self.stop_event.is_set():
             self.stop_event.clear()
-        self.tasks.append(asyncio.create_task(self.dispatch(), name=f"dispatching-{self.name}"))
+        self.tasks.append(
+            asyncio.create_task(self.dispatch(), name=f"dispatching-{self.name}")
+        )
         for target in self.targets:
             name = root if (root := self.targets[target].get("root")) else target
-            self.tasks.append(asyncio.create_task(self.poll(target), name=f"polling-{name}"))
+            self.tasks.append(
+                asyncio.create_task(self.poll(target), name=f"polling-{name}")
+            )
         for dispatcher in self.dispatcher_list:
             self.tasks.append(
                 asyncio.create_task(
@@ -307,6 +311,7 @@ class ActivityPoller(GoogleDrivePoller):
     def __init__(self, *args: Any, **kwds: Any):
         super().__init__(*args, **kwds)
         self.resource = self.drive.api_activity.activity()
+        self.semaphore = asyncio.Semaphore(5)
 
     async def dispatch(self) -> None:
         logger.info(f"Dispatching task starts: {self.name}")
@@ -339,19 +344,27 @@ class ActivityPoller(GoogleDrivePoller):
                 return
             # 대상이 영구히 삭제돼서 조회 불가능 할 경우
             if data.action == "delete" and data.action_detail != "TRASH":
-                logger.debug(f'Skipped: target={data.target} reason="deleted permanently"')
+                logger.debug(
+                    f'Skipped: target={data.target} reason="deleted permanently"'
+                )
                 return
             # 대상 경로
             target_id = data.target[1].partition("/")[-1]
-            path_info = self.drive.get_full_path(target_id, data.ancestor, data.root)
+            async with self.semaphore:
+                path_info = await asyncio.to_thread(
+                    self.drive.get_full_path, target_id, data.ancestor, data.root
+                )
             data.path = None
             parent = (None, None)
             web_view = None
             if path_info:
                 data.path, parent, web_view = path_info
                 if not parent[0]:
-                    logger.warning(f"Could not figure out its path: id={target_id} ancestor={data.ancestor} root={data.root} parent={parent[0]}")
+                    logger.warning(
+                        f"Could not figure out its path: id={target_id} ancestor={data.ancestor} root={data.root} parent={parent[0]}"
+                    )
                     data.path = f"/unknown/{data.target[0]}"
+            data.parent = parent
             # url 링크
             if web_view:
                 data.link = web_view.strip()
@@ -364,18 +377,31 @@ class ActivityPoller(GoogleDrivePoller):
                 logger.debug(f"Moved from: {data.action_detail}")
                 try:
                     removed_parent_id = data.action_detail[1].partition("/")[-1]
-                    removed_path_info = self.drive.get_full_path(removed_parent_id, data.ancestor, data.root)
+                    # 다른 ancestor에서 이동된 경우 경로 매핑이 어려움
+                    async with self.semaphore:
+                        removed_path_info = await asyncio.to_thread(
+                            self.drive.get_full_path,
+                            removed_parent_id,
+                            data.ancestor,
+                            data.root,
+                        )
                     if removed_path_info:
                         removed_path, _, _ = removed_path_info
-                        data.removed_path = str(pathlib.Path(removed_path, data.target[0]))
+                        data.removed_path = str(
+                            pathlib.Path(removed_path, data.target[0])
+                        )
                 except Exception as e:
                     logger.exception(e)
             elif data.action == "rename" and data.action_detail:
                 logger.debug(f"Renamed from: {data.action_detail}")
                 if data.path:
-                    data.removed_path = str(pathlib.Path(data.path).with_name(data.action_detail))
+                    data.removed_path = str(
+                        pathlib.Path(data.path).with_name(data.action_detail)
+                    )
             # 기타 정보
-            data.timestamp_text = data.timestamp.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%dT%H:%M:%S%z")
+            data.timestamp_text = data.timestamp.astimezone(LOCAL_TIMEZONE).strftime(
+                "%Y-%m-%dT%H:%M:%S%z"
+            )
             data.poller = self.name
             # 패턴 체크
             for attr, name in [("path", "target"), ("removed_path", "removed_path")]:
@@ -397,9 +423,13 @@ class ActivityPoller(GoogleDrivePoller):
                     data.action = "delete"
                     if data.action_detail:
                         data.link = f'https://drive.google.com/drive/folders/{data.action_detail[1].partition("/")[-1]}'
-                        data.action_detail = f"Moved but can not access: {data.target[1]}"
+                        data.action_detail = (
+                            f"Moved but can not access: {data.target[1]}"
+                        )
                 case False, False:
-                    logger.info(f'Skipped: target={data.target} reason="No applicable path"')
+                    logger.info(
+                        f'Skipped: target={data.target} reason="No applicable path"'
+                    )
                     return
             for dispatcher in self.dispatcher_list:
                 # activity 발생 순서대로, dispatcher 배치 순서대로
@@ -456,7 +486,9 @@ class ActivityPoller(GoogleDrivePoller):
                         self.task_check_interval > 0
                         and current_timestamp - timestamps[1] > self.task_check_interval
                     ):
-                        logger.debug(f'No activity in "{ancestor_name}" since {start_time.astimezone(LOCAL_TIMEZONE)}')
+                        logger.debug(
+                            f'No activity in "{ancestor_name}" since {start_time.astimezone(LOCAL_TIMEZONE)}'
+                        )
                         timestamps[1] = current_timestamp
                     break
                 # logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
@@ -467,7 +499,9 @@ class ActivityPoller(GoogleDrivePoller):
                     data.ancestor = ancestor
                     data.root = root
                     data.priority = data.timestamp.timestamp()
-                    logger.info(f"{data.action}, {data.target} at {data.timestamp.astimezone(LOCAL_TIMEZONE)} ({ancestor_name})")
+                    logger.info(
+                        f"{data.action}, {data.target} at {data.timestamp.astimezone(LOCAL_TIMEZONE)} ({ancestor_name})"
+                    )
                     self.dispatch_queue.put(data)
                 if not next_page_token:
                     break
@@ -479,7 +513,9 @@ class ActivityPoller(GoogleDrivePoller):
         # logger.debug(f'{activity["actions"]=}')
         # logger.debug(f'{activity["targets"]=}')
         time_info = self.get_time_info(activity)
-        timestmap_format = ("%Y-%m-%dT%H:%M:%S.%f%z" if "." in time_info else "%Y-%m-%dT%H:%M:%S%z")
+        timestmap_format = (
+            "%Y-%m-%dT%H:%M:%S.%f%z" if "." in time_info else "%Y-%m-%dT%H:%M:%S%z"
+        )
         action, action_detail = self.get_action_info(activity["primaryActionDetail"])
         return ActivityData(
             activity=activity,
@@ -529,9 +565,13 @@ class ActivityPoller(GoogleDrivePoller):
                     action_detail: list = actionDetail[key]["addedPermissions"]
                 case "comment":
                     actionDetail[key].pop("mentionedUsers")
-                    action_detail = actionDetail[key][self.get_one_of(actionDetail[key])]["subtype"]
+                    action_detail = actionDetail[key][
+                        self.get_one_of(actionDetail[key])
+                    ]["subtype"]
                 case "settingsChange":
-                    action_detail = actionDetail[key]["restrictionChanges"][0]["newRestriction"]
+                    action_detail = actionDetail[key]["restrictionChanges"][0][
+                        "newRestriction"
+                    ]
                 case _:
                     action_detail = None
             return key, action_detail

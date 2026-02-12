@@ -7,7 +7,16 @@ from typing import Any, Sequence
 from pathlib import Path
 from collections import OrderedDict
 
-from .apis import Rclone, Plex, Kavita, Discord, Flaskfarm, FlaskfarmaiderBot, Jellyfin, Stash
+from .apis import (
+    Rclone,
+    Plex,
+    Kavita,
+    Discord,
+    Flaskfarm,
+    FlaskfarmaiderBot,
+    Jellyfin,
+    Stash,
+)
 from .helpers.helpers import parse_mappings, map_path, watch_process
 from .models import ActivityData
 
@@ -27,20 +36,17 @@ class Dispatcher(ABC):
             self.stop_event.clear()
         await self.on_start()
 
-    async def on_start(self) -> None:
-        pass
+    async def on_start(self) -> None: ...
 
     async def stop(self) -> None:
         if not self.stop_event.is_set():
             self.stop_event.set()
         await self.on_stop()
 
-    async def on_stop(self) -> None:
-        pass
+    async def on_stop(self) -> None: ...
 
     @abstractmethod
-    async def dispatch(self, data: ActivityData) -> None:
-        pass
+    async def dispatch(self, data: ActivityData) -> None: ...
 
     def get_mapping_path(self, target_path: str) -> str:
         return map_path(target_path, self.mappings) if self.mappings else target_path
@@ -48,7 +54,7 @@ class Dispatcher(ABC):
 
 class BufferedDispatcher(Dispatcher):
 
-    def __init__(self,  **kwds: Any) -> None:
+    def __init__(self, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.folder_buffer: OrderedDict[str, list[ActivityData]] = OrderedDict()
 
@@ -159,7 +165,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
                 logger.warning(f"No applicable action: {act.action} in '{parent}'")
                 continue
             # 폴더를 통째로 move 하는 경우 무시 됨
-            #if act.action == "create" and act.is_folder:
+            # if act.action == "create" and act.is_folder:
             #    logger.warning(
             #        f"Skipped: name='{act.target[0]}' reason='Folder created'"
             #    )
@@ -223,14 +229,98 @@ class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
         self.flaskfarm.gds_tool_fp_broadcast(path, mode)
 
 
-class FlaskfarmaiderDispatcher(GDSBroadcastDispatcher):
+class FlaskfarmaiderDispatcher(Dispatcher):
 
     def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.bot = FlaskfarmaiderBot(url, apikey)
 
+
+class GDSFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher, GDSBroadcastDispatcher):
+
     async def broadcast(self, path: str, mode: str) -> None:
-        self.bot.api_broadcast(path, mode)
+        self.bot.api_broadcast_gds(path, mode)
+
+
+class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
+
+    ALLOWED_ACTIONS = {"create", "move"}
+    ALLOWED_EXTENSIONS = {
+        ".mp4",
+        ".mkv",
+        ".avi",
+        ".mov",
+        ".wmv",
+        ".mpg",
+        ".rmvb",
+        ".flv",
+        ".webm",
+        ".m4v",
+        ".ts",
+        ".mts",
+        ".m2ts",
+        ".iso",
+    }
+
+    def __init__(self, **kwds: Any) -> None:
+        super().__init__(**kwds)
+        self.pending_tasks: dict[str, asyncio.Task] = {}
+
+    async def dispatch(self, data: ActivityData) -> None:
+        _, parent_id = data.parent
+        target = data.target
+        target_path = Path(self.get_mapping_path(data.path))
+        if data.action not in self.ALLOWED_ACTIONS:
+            logger.info(f"Skipped: {target_path.name} reason='Action'")
+            return
+        if target_path.suffix.lower() not in self.ALLOWED_EXTENSIONS:
+            logger.info(f"Skipped: {target_path.name} reason='Extention'")
+            return
+        vod_folders = ('/ROOT/GDRIVE/VIDEO/방송중', '/ROOT/GDRIVE/VIDEO/방송중(기타)')
+        movie_folder = '/ROOT/GDRIVE/VIDEO/영화'
+        if target_path.is_relative_to(movie_folder):
+            logger.info(f"{data=}")
+            if parent_id is None:
+                logger.info(f"Skipped: {target_path.name} reason='No parent'")
+                return
+            if parent_id not in self.pending_tasks:
+                self.pending_tasks[parent_id] = asyncio.create_task(
+                    self._delayed_dispatch_worker(str(target_path.parent), parent_id)
+                )
+            else:
+                logger.info(f"Skipped: {target_path.name} reason='Already pending'")
+        elif any(target_path.is_relative_to(p) for p in vod_folders):
+            if data.removed_path:
+                removed_path = Path(data.removed_path)
+                if any(removed_path.is_relative_to(p) for p in vod_folders):
+                    logger.info(
+                        f"Skipped: {target_path.name} reason='Moved from {data.removed_path}'"
+                    )
+                    return
+            target_id = target[1].split("/")[-1]
+            logger.info(f"Broadcast: {target_path=} {target_id=}")
+            await asyncio.to_thread(self.bot.api_broadcast_downloader, str(target_path), target_id)
+        else:
+            ...
+
+    async def _delayed_dispatch_worker(self, parent_path: str, parent_id: str) -> None:
+        try:
+            interval = getattr(self, 'buffier_interval', 30)
+            await asyncio.sleep(interval)
+            await asyncio.to_thread(self.bot.api_broadcast_downloader, parent_path, parent_id)
+        except asyncio.CancelledError:
+             logger.debug(f"Delayed dispatch cancelled: {parent_path=}")
+             raise
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            self.pending_tasks.pop(parent_id, None)
+
+    async def on_stop(self) -> None:
+        for task in self.pending_tasks.values():
+            task.cancel()
+        if self.pending_tasks:
+            await asyncio.gather(*self.pending_tasks.values(), return_exceptions=True)
 
 
 class PlexmateDispatcher(FlaskfarmDispatcher):
@@ -584,7 +674,9 @@ class StashDispatcher(BufferedDispatcher):
             else:
                 updates.append(self.get_mapping_path(act.path))
         if deletes:
-            result = self.stash.metadata_clean(paths=(self.get_mapping_path(parent),), dry_run=False)
+            result = self.stash.metadata_clean(
+                paths=(self.get_mapping_path(parent),), dry_run=False
+            )
             status_code = result.get("status_code")
             logger.info(f"Stash: deleted_parent={parent} {status_code=}")
         if updates:

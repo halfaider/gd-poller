@@ -150,6 +150,7 @@ class ActivityData(BaseModel):
     link: str  = ""
     is_folder: bool = False
     poller: str = ""
+    parent: tuple[str | None, str | None] = ()
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ActivityData):

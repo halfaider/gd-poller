@@ -644,11 +644,15 @@ class FlaskfarmaiderBot(Api):
         super().__init__(url)
         self.apikey = apikey.strip()
 
-    @Api.http_api("/api/broadcast", method="POST")
-    def api_broadcast(self, path: str, mode: str) -> dict:
+    @Api.http_api("/api/broadcasts/gds", method="POST")
+    def api_broadcast_gds(self, path: str, mode: str) -> dict:
         if not path.startswith("/ROOT/GDRIVE"):
             raise Exception(f'The path must start with "/ROOT/GDRIVE/": {path}')
         return {"data": {"path": path, "mode": mode, "apikey": self.apikey}}
+
+    @Api.http_api("/api/broadcasts/downloader", method="POST")
+    def api_broadcast_downloader(self, path: str, item: str) -> dict:
+        return {"data": {"path": path, "item": item, "apikey": self.apikey}}
 
 
 class Jellyfin(Api):
@@ -711,13 +715,13 @@ class Stash(Api):
                         "scanGeneratePreviews": preview,
                         "scanGenerateSprites": sprite,
                         "scanGenerateThumbnails": thumbnail,
-                        "paths": paths
+                        "paths": paths,
                     }
                 },
-                "query":"mutation MetadataScan($input: ScanMetadataInput!){metadataScan(input: $input)}"
+                "query": "mutation MetadataScan($input: ScanMetadataInput!){metadataScan(input: $input)}",
             }
         )
-    
+
     def metadata_clean(self, paths: Sequence[str], dry_run: bool = True) -> dict:
         return self.api_gql(
             {
@@ -728,6 +732,6 @@ class Stash(Api):
                         "dryRun": dry_run,
                     }
                 },
-                "query":"mutation MetadataClean($input: CleanMetadataInput!){metadataClean(input: $input)}"
+                "query": "mutation MetadataClean($input: CleanMetadataInput!){metadataClean(input: $input)}",
             }
         )
