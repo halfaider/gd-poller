@@ -274,18 +274,22 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         if data.action not in self.ALLOWED_ACTIONS:
             logger.info(f"Skipped: {target_path.name} reason='Action'")
             return
+        if data.is_folder:
+            # 폴더의 파일 유무를 판단할 수 없음
+            logger.info(f"Skipped: {target_path.name} reason='Folder")
+            return
         if target_path.suffix.lower() not in self.ALLOWED_EXTENSIONS:
             logger.info(f"Skipped: {target_path.name} reason='Extention'")
             return
-        vod_folders = ('/ROOT/GDRIVE/VIDEO/방송중', '/ROOT/GDRIVE/VIDEO/방송중(기타)')
-        movie_folder = '/ROOT/GDRIVE/VIDEO/영화'
+        vod_folders = ("/ROOT/GDRIVE/VIDEO/방송중", "/ROOT/GDRIVE/VIDEO/방송중(기타)")
+        movie_folder = "/ROOT/GDRIVE/VIDEO/영화"
         if target_path.is_relative_to(movie_folder):
             if parent_id is None:
                 logger.info(f"Skipped: {target_path.name} reason='No parent'")
                 return
             stats = self.pending_stats.setdefault(parent_id, {"count": 0, "size": 0})
             stats["count"] += 1
-            stats['size'] += getattr(data, 'size', 0) or 0
+            stats["size"] += getattr(data, "size", 0) or 0
             if parent_id not in self.pending_tasks:
                 self.pending_tasks[parent_id] = asyncio.create_task(
                     self._delayed_dispatch_worker(str(target_path.parent), parent_id)
@@ -302,19 +306,31 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                     return
             target_id = target[1].split("/")[-1]
             logger.info(f"Broadcast: {target_path=} {target_id=}")
-            await asyncio.to_thread(self.bot.api_broadcast_downloader, str(target_path), target_id, file_count=1, total_size=getattr(data, 'size', 0) or 0)
+            await asyncio.to_thread(
+                self.bot.api_broadcast_downloader,
+                str(target_path),
+                target_id,
+                file_count=1,
+                total_size=getattr(data, "size", 0) or 0,
+            )
         else:
             ...
 
     async def _delayed_dispatch_worker(self, parent_path: str, parent_id: str) -> None:
         try:
-            interval = getattr(self, 'buffier_interval', 30)
+            interval = getattr(self, "buffier_interval", 30)
             await asyncio.sleep(interval)
-            stats = self.pending_stats.get(parent_id) or {'count': 0, 'size': 0}
-            await asyncio.to_thread(self.bot.api_broadcast_downloader, parent_path, parent_id, file_count=stats['count'], total_size=stats['size'])
+            stats = self.pending_stats.get(parent_id) or {"count": 0, "size": 0}
+            await asyncio.to_thread(
+                self.bot.api_broadcast_downloader,
+                parent_path,
+                parent_id,
+                file_count=stats["count"],
+                total_size=stats["size"],
+            )
         except asyncio.CancelledError:
-             logger.debug(f"Delayed dispatch cancelled: {parent_path=}")
-             raise
+            logger.debug(f"Delayed dispatch cancelled: {parent_path=}")
+            raise
         except Exception as e:
             logger.exception(e)
         finally:
