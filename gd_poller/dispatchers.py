@@ -280,7 +280,6 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         vod_folders = ('/ROOT/GDRIVE/VIDEO/방송중', '/ROOT/GDRIVE/VIDEO/방송중(기타)')
         movie_folder = '/ROOT/GDRIVE/VIDEO/영화'
         if target_path.is_relative_to(movie_folder):
-            logger.info(f"{data=}")
             if parent_id is None:
                 logger.info(f"Skipped: {target_path.name} reason='No parent'")
                 return
