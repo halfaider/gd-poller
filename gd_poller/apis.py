@@ -10,7 +10,7 @@ from typing import Any, Optional, Callable, Sequence, TYPE_CHECKING, cast
 from httplib2 import Http
 from google_auth_httplib2 import AuthorizedHttp
 from google.oauth2 import credentials
-from googleapiclient.discovery import build, Resource
+from googleapiclient.discovery import build
 from googleapiclient.http import HttpRequest
 from googleapiclient import errors
 
@@ -186,8 +186,7 @@ class Api:
     def last_executed_timestamp(self, value: float) -> None:
         self._last_executed_timestamp = value
 
-    def adjust_api(self, api_data: dict) -> None:
-        pass
+    def adjust_api(self, api_data: dict) -> None: ...
 
     def get_sleep_enough(self, interval: float) -> None:
         sleep_time = interval - (time.time() - self.last_executed_timestamp)
