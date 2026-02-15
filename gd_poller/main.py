@@ -19,12 +19,12 @@ LOCAL_TIMEZONE = (
 )
 
 
-async def async_main(settings_file: str | os.PathLike | None = None) -> None:
+async def async_main(settings_file: str | None = None) -> None:
     pollers = []
     tasks = []
     try:
         try:
-            settings = AppSettings(user_yaml_file=settings_file)
+            settings = AppSettings(user_yaml_file=settings_file) # type: ignore
         except pydantic.ValidationError as e:
             logger.error(e)
             return
@@ -74,10 +74,11 @@ async def async_main(settings_file: str | os.PathLike | None = None) -> None:
             pollers.append(activity_poller)
         for poller in pollers:
             tasks.append(asyncio.create_task(poller.start(), name=poller.name))
-        if settings.task_check_interval > 0:
+        task_check_interval = settings.task_check_interval or -1
+        if task_check_interval > 0:
             tasks.append(
                 asyncio.create_task(
-                    check_tasks(tasks, settings.task_check_interval),
+                    check_tasks(tasks, task_check_interval),
                     name="check_tasks",
                 )
             )
@@ -100,7 +101,7 @@ async def async_main(settings_file: str | os.PathLike | None = None) -> None:
             await asyncio.gather(*stop_tasks, return_exceptions=True)
 
 
-def main(settings_file: str | os.PathLike | None = None) -> None:
+def main(settings_file: str | None = None) -> None:
     try:
         asyncio.run(async_main(settings_file))
     except KeyboardInterrupt:

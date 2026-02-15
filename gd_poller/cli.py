@@ -11,7 +11,7 @@ def main(*args: Any) -> None:
     # ('LOAD', '/path/to/gd-poller/app.py', '/path/to/config.yaml')
     # ('app.py', '/path/to/config.yaml')
     if not args:
-        args = sys.argv
+        args = tuple(sys.argv)
     if len(args) > 2 and args[0] == "LOAD":
         args = args[2:]
     else:

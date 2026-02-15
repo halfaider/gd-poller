@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast, Sequence
 
 from pydantic_settings import (
     BaseSettings,
@@ -14,6 +14,8 @@ from .helpers import deep_merge
 
 logger = logging.getLogger(__name__)
 
+PathType = Path | str | Sequence[Path | str]
+
 
 class MergedYamlSettingsSource(YamlConfigSettingsSource):
     """
@@ -24,13 +26,14 @@ class MergedYamlSettingsSource(YamlConfigSettingsSource):
         user_config = super().__call__()
         default_config = {}
         for field_name, field in self.settings_cls.model_fields.items():
-            if field.default_factory:
-                default_config[field_name] = field.default_factory()
+            if field.default_factory is not None:
+                factory = cast(Callable[[], Any], field.default_factory)
+                default_config[field_name] = factory()
         if not user_config:
             return default_config
         return deep_merge(default_config, user_config)
 
-    def _read_files(self, files: str | os.PathLike | None) -> dict[str, Any]:
+    def _read_files(self, files: PathType | None) -> dict[str, Any]:
         if files is None:
             return {}
         if isinstance(files, (str, os.PathLike)):
@@ -65,7 +68,7 @@ class _BaseSettings(BaseSettings):
     )
 
     def __init__(
-        self, *args: Any, user_yaml_file: str | os.PathLike | None = None, **kwds: Any
+        self, *args: Any, user_yaml_file: str | None = None, **kwds: Any
     ) -> None:
         if user_yaml_file:
             self.model_config["yaml_file"] = user_yaml_file

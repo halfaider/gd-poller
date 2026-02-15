@@ -15,14 +15,14 @@ DEFAULT_HEADERS = {
 
 class HelperSession(requests.Session):
 
-    def __init__(self, headers: dict = None, auth: tuple = None, proxies: dict = None) -> None:
+    def __init__(self, headers: dict | None = None, auth: tuple | None = None, proxies: dict | None = None) -> None:
         super().__init__()
         self.headers.update(DEFAULT_HEADERS)
         if headers:
             self.headers.update(headers)
 
-    def request(self, method: str, url: str, **kwds: Any) -> requests.Response:
-        return super().request(method, url, **kwds)
+    def request(self, method: str, url: str, *args: Any, **kwds: Any) -> requests.Response:
+        return super().request(method, url, *args, **kwds)
 
 
 def get_traceback_response(tb: str) -> requests.Response:

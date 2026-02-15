@@ -1,7 +1,7 @@
 import re
 import logging
 import logging.config
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +51,11 @@ class RedactingFilter(logging.Filter):
 
 
 def set_logger(
-    level: str = None,
-    format: str = None,
-    datefmt: str = None,
-    redacted_patterns: Iterable = None,
-    redacted_substitute: str = None,
+    level: str | None = None,
+    format: str | None = None,
+    datefmt: str | None = None,
+    redacted_patterns: Sequence | None = None,
+    redacted_substitute: str | None = None,
 ) -> None:
     default_logging_config = {
         "version": 1,

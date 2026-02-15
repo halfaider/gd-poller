@@ -44,7 +44,7 @@ def parse_mappings(mappings: Iterable[str]) -> list[tuple[str]]:
     return mapped
 
 
-def map_path(target: str, mappings: Iterable[Iterable[str]]) -> str:
+def map_path(target: str, mappings: Iterable[Sequence[str]]) -> str:
     for mapping in mappings:
         target = target.replace(mapping[0], mapping[1])
     return target
@@ -77,7 +77,7 @@ def get_ttl_hash(seconds: int = 3600) -> int:
     return round(time.time() / seconds)
 
 
-async def watch_process(process: subprocess.Popen, stop_flag: threading.Event, timeout: int = 300) -> None:
+async def watch_process(process: subprocess.Popen, stop_flag: threading.Event | asyncio.Event, timeout: int = 300) -> None:
     for i in range(timeout):
         if process.poll() is not None or stop_flag.is_set():
             break
@@ -130,3 +130,28 @@ def deep_merge(base: dict, override: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+def get_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        truthy = {'true', 'yes', 'on', '1', 'y'}
+        falsy = {'false', 'no', 'off', '0', 'n'}
+        if normalized in truthy:
+            return True
+        if normalized in falsy:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def get_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default

@@ -26,7 +26,9 @@ logger = logging.getLogger(__name__)
 
 class Dispatcher(ABC):
 
-    def __init__(self, *, mappings: list = None, buffer_interval: int = 30) -> None:
+    def __init__(
+        self, *, mappings: list | None = None, buffer_interval: int = 30
+    ) -> None:
         self.stop_event = asyncio.Event()
         self.mappings = parse_mappings(mappings) if mappings else None
         self.buffer_interval = buffer_interval
@@ -68,10 +70,11 @@ class BufferedDispatcher(Dispatcher):
             data_list.append(data_delete)
             data.removed_path = ""
         for data_ in data_list:
-            target = Path(data_.path)
-            key = str(target.parent)
-            self.folder_buffer.setdefault(key, list())
-            self.folder_buffer[key].append(data_)
+            if data_.path is not None:
+                target = Path(data_.path)
+                key = str(target.parent)
+                self.folder_buffer.setdefault(key, list())
+                self.folder_buffer[key].append(data_)
 
     @abstractmethod
     async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
@@ -104,7 +107,7 @@ class DummyDispatcher(Dispatcher):
 
 class KavitaDispatcher(BufferedDispatcher):
 
-    def __init__(self, url: str = None, apikey: str = None, **kwds: Any) -> None:
+    def __init__(self, url: str, apikey: str, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.kavita = Kavita(url, apikey)
 
@@ -133,7 +136,7 @@ class KavitaDispatcher(BufferedDispatcher):
 
     async def scan_folder(self, path: str) -> int:
         result = self.kavita.api_library_scan_folder(path)
-        status_code = result.get("status_code")
+        status_code = result.get("status_code") or 0
         logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
         return status_code
 
@@ -154,7 +157,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
         parent, activities = item
         logger.debug(f"Broadcast: {parent}")
         # 한번에 처리되기 때문에 파일의 상태는 마지막 activity로 결정
-        acts_by_path = {act.path: act for act in activities}
+        acts_by_path = {act.path: act for act in activities if act.path}
         deletes = {"file": [], "folder": []}
         files = []
         folders = []
@@ -190,7 +193,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             else:
                 bucket = files
             bucket.append((mode, act))
-        targets: list[tuple[str, str]] = []
+        targets = []
         # deletes, files, folders, info_files 순서로 처리
         length = len(deletes["file"]) + len(deletes["folder"])
         if deletes["file"] and length > 1:
@@ -204,7 +207,14 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             for act_list in deletes.values():
                 for act in act_list:
                     targets.append(
-                        (act.path, "REMOVE_FOLDER" if act.is_folder else "REMOVE_FILE")
+                        (
+                            act.path,
+                            (
+                                "REMOVE_FOLDER"
+                                if act.path and act.is_folder
+                                else "REMOVE_FILE"
+                            ),
+                        )
                     )
         for idx, target in enumerate(files + folders + info_files):
             mode, act = target
@@ -270,6 +280,8 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
     async def dispatch(self, data: ActivityData) -> None:
         _, parent_id = data.parent
         target = data.target
+        if data.path is None:
+            return
         target_path = Path(self.get_mapping_path(data.path))
         if data.action not in self.ALLOWED_ACTIONS:
             logger.info(f"Skipped: {target_path.name} reason='Action'")
@@ -304,15 +316,18 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                         f"Skipped: {target_path.name} reason='Moved from {data.removed_path}'"
                     )
                     return
-            target_id = target[1].split("/")[-1]
-            logger.info(f"Broadcast: {target_path=} {target_id=}")
-            await asyncio.to_thread(
-                self.bot.api_broadcast_downloader,
-                str(target_path),
-                target_id,
-                file_count=1,
-                total_size=getattr(data, "size", 0) or 0,
-            )
+            if target_item := target[1]:
+                target_id = target_item.split("/")[-1]
+                logger.info(f"Broadcast: {target_path=} {target_id=}")
+                await asyncio.to_thread(
+                    self.bot.api_broadcast_downloader,
+                    str(target_path),
+                    target_id,
+                    file_count=1,
+                    total_size=getattr(data, "size", 0) or 0,
+                )
+            else:
+                logger.error(f"No target ID: {target=}")
         else:
             ...
 
@@ -349,6 +364,8 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
 
     async def dispatch(self, data: ActivityData) -> None:
         scan_targets = []
+        if data.path is None:
+            return
         target_path = self.get_mapping_path(data.path)
         if Path(target_path).suffix.lower() in (".json", ".yaml", ".yml"):
             mode = "REFRESH"
@@ -381,9 +398,9 @@ class DiscordDispatcher(Dispatcher):
     def __init__(
         self,
         url: str = "https://discord.com/api",
-        webhook_id: str = None,
-        webhook_token: str = None,
-        colors: dict = None,
+        webhook_id: str = "",
+        webhook_token: str = "",
+        colors: dict = {},
         **kwds: Any,
     ) -> None:
         super().__init__(**kwds)
@@ -392,6 +409,8 @@ class DiscordDispatcher(Dispatcher):
         self.discord = Discord(url, webhook_id, webhook_token)
 
     async def dispatch(self, data: ActivityData) -> None:
+        if data.path is None:
+            return
         embed = {
             "color": self.COLORS.get(data.action, self.COLORS["default"]),
             "author": {
@@ -411,19 +430,16 @@ class DiscordDispatcher(Dispatcher):
                     ),
                 }
             )
-        elif data.action_detail and type(data.action_detail) in (
-            str,
-            int,
-        ):
+        elif data.action_detail and isinstance(data.action_detail, (str, int)):
             embed["fields"].append(
                 {"name": "Details", "value": self.get_truncated(data.action_detail)}
             )
-        embed["fields"].append(
-            {"name": "ID", "value": self.get_truncated(data.target[1])}
-        )
-        embed["fields"].append(
-            {"name": "MIME", "value": self.get_truncated(data.target[2])}
-        )
+        if target_id := data.target[1]:
+            embed["fields"].append(
+                {"name": "ID", "value": self.get_truncated(target_id)}
+            )
+        if mime := data.target[2]:
+            embed["fields"].append({"name": "MIME", "value": self.get_truncated(mime)})
         embed["fields"].append({"name": "Link", "value": self.get_truncated(data.link)})
         embed["fields"].append(
             {"name": "Occurred at", "value": self.get_truncated(data.timestamp_text)}
@@ -441,11 +457,13 @@ class DiscordDispatcher(Dispatcher):
 
 class RcloneDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, **kwds: Any) -> None:
+    def __init__(self, url: str, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.rclone = Rclone(url)
 
     async def dispatch(self, data: ActivityData) -> None:
+        if data.path is None:
+            return
         remote_path = Path(self.get_mapping_path(data.path))
         if data.action == "delete":
             self.rclone.forget(str(remote_path), data.is_folder)
@@ -460,11 +478,13 @@ class RcloneDispatcher(Dispatcher):
 
 class PlexDispatcher(Dispatcher):
 
-    def __init__(self, url: str = None, token: str = None, **kwds: Any) -> None:
+    def __init__(self, url: str, token: str, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.plex = Plex(url, token)
 
     async def dispatch(self, data: ActivityData) -> None:
+        if data.path is None:
+            return
         targets = set()
         plex_path = Path(self.get_mapping_path(data.path))
         targets.add(str(plex_path) if data.is_folder else str(plex_path.parent))
@@ -567,11 +587,11 @@ class PlexRcloneDispatcher(MultiServerDispatcher):
 
     def __init__(
         self,
-        url: str = None,
-        mappings: list = None,
-        plex_url: str = None,
-        plex_token: str = None,
-        plex_mappings: list = None,
+        url: str = "",
+        mappings: list = [],
+        plex_url: str = "",
+        plex_token: str = "",
+        plex_mappings: list = [],
         **kwds: Any,
     ) -> None:
         rclones = [{"url": url, "mappings": mappings}]
@@ -598,6 +618,8 @@ class CommandDispatcher(Dispatcher):
         self.process_watchers = set()
 
     async def dispatch(self, data: ActivityData) -> None:
+        if data.path is None:
+            return
         if self.drop_during_process and bool(self.process_watchers):
             logger.warning(f"Already running: {self.process_watchers}")
             return
@@ -641,6 +663,8 @@ class JellyfinDispatcher(BufferedDispatcher):
 
         updates = []
         for act in acts_by_path.values():
+            if act.path is None:
+                continue
             if act.is_folder:
                 logger.warning(f"Skipped: name='{act.target[0]}' reason='Folder'")
                 continue
@@ -688,6 +712,8 @@ class StashDispatcher(BufferedDispatcher):
         deletes = []
         acts_by_path = {act.path: act for act in activities}
         for act in acts_by_path.values():
+            if act.path is None:
+                continue
             if act.is_folder:
                 logger.warning(f"Skipped: name='{act.target[0]}' reason='Folder'")
                 continue

@@ -6,12 +6,15 @@ import logging
 import asyncio
 import datetime
 from abc import ABC, abstractmethod
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence, TYPE_CHECKING
 
 from . import dispatchers
 from .apis import GoogleDrive
 from .models import ActivityData
-from .helpers.helpers import await_sync, check_tasks
+from .helpers.helpers import await_sync, check_tasks, get_bool, get_int
+
+if TYPE_CHECKING:
+    from googleapiclient._apis.driveactivity.v2 import QueryDriveActivityRequest # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +25,22 @@ LOCAL_TIMEZONE = (
 
 class GoogleDrivePoller(ABC):
 
+    _dispatch_queue: queue.PriorityQueue
+    _tasks: list[asyncio.Task]
+    _stop_event = asyncio.Event()
+
     def __init__(
         self,
         drive: GoogleDrive,
-        targets: Iterable[str],
-        dispatcher_list: Iterable[dispatchers.Dispatcher] = None,
-        name: str = None,
-        polling_interval: int = 60,
+        targets: Sequence[str],
+        dispatcher_list: Sequence[dispatchers.Dispatcher] | None = None,
+        name: str | None = None,
+        polling_interval: int | float = 60,
         page_size: int = 50,
-        actions: Iterable = None,
+        actions: Sequence[str] | None = None,
         task_check_interval: int = -1,
-        patterns: list = None,
-        ignore_patterns: list = None,
+        patterns: Sequence | None = None,
+        ignore_patterns: Sequence | None = None,
         ignore_folder: bool = True,
         dispatch_interval: int = 1,
         polling_delay: int = 60,
@@ -50,13 +57,8 @@ class GoogleDrivePoller(ABC):
         self.dispatch_interval = dispatch_interval
         self.task_check_interval = task_check_interval
         self.polling_delay = polling_delay
-
         # polling_delay 초기화 후
         self.targets = targets
-
-        self._stop_event = asyncio.Event()
-        self._dispatch_queue = None
-        self._tasks = None
 
     @property
     def drive(self) -> GoogleDrive:
@@ -67,11 +69,11 @@ class GoogleDrivePoller(ABC):
         self._drive = drive
 
     @property
-    def targets(self) -> dict:
+    def targets(self) -> dict[str, dict[str, Any]]:
         return self._targets
 
     @targets.setter
-    def targets(self, targets: list) -> None:
+    def targets(self, targets: Sequence[str]) -> None:
         try:
             if len(targets) < 1:
                 raise Exception(f"The targets is empty: {targets=}")
@@ -99,15 +101,17 @@ class GoogleDrivePoller(ABC):
             raise Exception(f"The targets is not a list: {targets=}")
 
     @property
-    def dispatcher_list(self) -> Iterable[dispatchers.Dispatcher]:
+    def dispatcher_list(self) -> Sequence[dispatchers.Dispatcher]:
         return self._dispatcher_list
 
     @dispatcher_list.setter
     def dispatcher_list(
-        self, dispatcher_list: Iterable[dispatchers.Dispatcher]
+        self, dispatcher_list: Sequence[dispatchers.Dispatcher] | None
     ) -> None:
         self._dispatcher_list = (
-            dispatcher_list if dispatcher_list else (dispatchers.DummyDispatcher(),)
+            tuple(dispatcher_list)
+            if isinstance(dispatcher_list, Sequence)
+            else (dispatchers.DummyDispatcher(),)
         )
 
     @property
@@ -115,39 +119,39 @@ class GoogleDrivePoller(ABC):
         return self._name
 
     @name.setter
-    def name(self, name: str) -> None:
-        self._name = name if name else self.__class__.__name__
+    def name(self, name: str | None) -> None:
+        self._name = name if isinstance(name, str) else self.__class__.__name__
 
     @property
     def polling_interval(self) -> int:
         return self._polling_interval
 
     @polling_interval.setter
-    def polling_interval(self, polling_interval: int = 60) -> None:
-        self._polling_interval = int(polling_interval)
+    def polling_interval(self, polling_interval: int | float) -> None:
+        self._polling_interval = get_int(polling_interval, 60)
 
     @property
     def polling_delay(self) -> int:
         return self._polling_delay
 
     @polling_delay.setter
-    def polling_delay(self, polling_delay: int = 60) -> None:
-        self._polling_delay = int(polling_delay)
+    def polling_delay(self, polling_delay: int | float) -> None:
+        self._polling_delay = get_int(polling_delay, 60)
 
     @property
     def page_size(self) -> int:
         return self._page_size
 
     @page_size.setter
-    def page_size(self, page_size: int) -> None:
-        self._page_size = int(page_size) if page_size else 50
+    def page_size(self, page_size: int | float) -> None:
+        self._page_size = get_int(page_size, 50)
 
     @property
-    def actions(self) -> tuple:
+    def actions(self) -> tuple[str, ...]:
         return self._actions
 
     @actions.setter
-    def actions(self, actions: Iterable) -> None:
+    def actions(self, actions: Sequence[str] | None) -> None:
         self._actions = (
             tuple(actions)
             if actions
@@ -168,11 +172,11 @@ class GoogleDrivePoller(ABC):
         )
 
     @property
-    def patterns(self) -> Iterable[re.Pattern]:
+    def patterns(self) -> tuple[re.Pattern, ...]:
         return self._patterns
 
     @patterns.setter
-    def patterns(self, patterns: Iterable[str]) -> None:
+    def patterns(self, patterns: Sequence[str] | None) -> None:
         self._patterns = (
             tuple(re.compile(pattern, re.I) for pattern in patterns)
             if patterns
@@ -180,11 +184,11 @@ class GoogleDrivePoller(ABC):
         )
 
     @property
-    def ignore_patterns(self) -> list:
+    def ignore_patterns(self) -> tuple[re.Pattern, ...]:
         return self._ignore_patterns
 
     @ignore_patterns.setter
-    def ignore_patterns(self, ignore_patterns: list) -> None:
+    def ignore_patterns(self, ignore_patterns: Sequence[str] | None) -> None:
         self._ignore_patterns = (
             tuple(re.compile(pattern, re.I) for pattern in ignore_patterns)
             if ignore_patterns
@@ -197,35 +201,31 @@ class GoogleDrivePoller(ABC):
 
     @dispatch_interval.setter
     def dispatch_interval(self, dispatch_interval: int) -> None:
-        try:
-            self._dispatch_interval = int(dispatch_interval)
-        except Exception as e:
-            logger.exception(e)
-            self._dispatch_interval = 1
+        self._dispatch_interval = get_int(dispatch_interval, 1)
 
     @property
     def ignore_folder(self) -> bool:
         return self._ignore_folder
 
     @ignore_folder.setter
-    def ignore_folder(self, ignore_folder: bool) -> bool:
-        self._ignore_folder = ignore_folder if type(ignore_folder) is bool else True
+    def ignore_folder(self, ignore_folder: bool) -> None:
+        self._ignore_folder = get_bool(ignore_folder, True)
 
     @property
     def stop_event(self) -> asyncio.Event:
         return self._stop_event
 
     @property
-    def dispatch_queue(self) -> queue.PriorityQueue:
+    def dispatch_queue(self) -> queue.PriorityQueue[ActivityData]:
         return self._dispatch_queue
 
     @property
-    def tasks(self) -> list:
+    def tasks(self) -> list[asyncio.Task[None]]:
         return self._tasks
 
     @tasks.setter
-    def tasks(self, tasks: list) -> None:
-        self._tasks = tasks if tasks is not None else []
+    def tasks(self, tasks: list[asyncio.Task[None]] | None) -> None:
+        self._tasks = tasks if isinstance(tasks, list) else []
 
     @property
     def task_check_interval(self) -> int:
@@ -233,7 +233,7 @@ class GoogleDrivePoller(ABC):
 
     @task_check_interval.setter
     def task_check_interval(self, task_check_interval: int) -> None:
-        self._task_check_interval = int(task_check_interval)
+        self._task_check_interval = get_int(task_check_interval, -1)
 
     async def start(self) -> None:
         self._dispatch_queue = queue.PriorityQueue()
@@ -279,8 +279,8 @@ class GoogleDrivePoller(ABC):
                     task.cancel()
                 except Exception as e:
                     logger.exception(e)
-        self._dispatch_queue = None
-        self._tasks = None
+        self._dispatch_queue = queue.PriorityQueue()
+        self._tasks = []
 
     def check_patterns(self, path: str, patterns: Iterable[re.Pattern]) -> bool:
         for pattern in patterns:
@@ -325,9 +325,9 @@ class ActivityPoller(GoogleDrivePoller):
         logger.info(f"Dispatching task ends: {self.name}")
 
     async def _dispatch(self) -> None:
-        data: ActivityData = None
+        data: ActivityData | None = None
         try:
-            data: ActivityData = self.dispatch_queue.get_nowait()
+            data = self.dispatch_queue.get_nowait()
             # action 필터링
             if data.action not in self.actions:
                 logger.debug(f"Skipped: target={data.target} reason={data.action}")
@@ -349,11 +349,17 @@ class ActivityPoller(GoogleDrivePoller):
                 )
                 return
             # 대상 경로
-            target_id = data.target[1].partition("/")[-1]
-            async with self.semaphore:
-                path_info = await asyncio.to_thread(
-                    self.drive.get_full_path, target_id, data.ancestor, data.root
-                )
+            target_id = None
+            path_info = None
+            if data.target[1] is not None:
+                target_id = data.target[1].partition("/")[-1]
+                async with self.semaphore:
+                    path_info = await asyncio.to_thread(
+                        self.drive.get_full_path,
+                        target_id,
+                        data.ancestor,
+                        data.root or "",
+                    )
             data.path = None
             parent = (None, None)
             web_view = None
@@ -384,16 +390,16 @@ class ActivityPoller(GoogleDrivePoller):
                             self.drive.get_full_path,
                             removed_parent_id,
                             data.ancestor,
-                            data.root,
+                            data.root or "",
                         )
                     if removed_path_info:
                         removed_path, _, _, _ = removed_path_info
                         data.removed_path = str(
-                            pathlib.Path(removed_path, data.target[0])
+                            pathlib.Path(removed_path, data.target[0] or "")
                         )
                 except Exception as e:
                     logger.exception(e)
-            elif data.action == "rename" and data.action_detail:
+            elif data.action == "rename" and isinstance(data.action_detail, str):
                 logger.debug(f"Renamed from: {data.action_detail}")
                 if data.path:
                     data.removed_path = str(
@@ -443,15 +449,15 @@ class ActivityPoller(GoogleDrivePoller):
             if data:
                 self.dispatch_queue.task_done()
 
-    async def poll(self, ancestor: str) -> None:
-        logger.info(f"Polling task starts: {ancestor}")
+    async def poll(self, target: str) -> None:
+        logger.info(f"Polling task starts: {target}")
         while not self.stop_event.is_set():
-            await self._poll(ancestor)
+            await self._poll(target)
             for _ in range(self.polling_interval):
                 await asyncio.sleep(1)
                 if self.stop_event.is_set():
                     break
-        logger.info(f"Polling task ends: {ancestor}")
+        logger.info(f"Polling task ends: {target}")
 
     async def _poll(self, ancestor: str) -> None:
         root = self.targets[ancestor].get("root")
@@ -464,14 +470,14 @@ class ActivityPoller(GoogleDrivePoller):
                 end_time = datetime.datetime.now(LOCAL_TIMEZONE) - datetime.timedelta(
                     seconds=self.polling_delay
                 )
-                query = self.resource.query(
-                    body={
-                        "pageSize": self.page_size,
-                        "ancestorName": f"items/{ancestor}",
-                        "pageToken": next_page_token,
-                        "filter": f"time > {int(start_time.timestamp() * 1000)} AND time <= {int(end_time.timestamp() * 1000)}",
-                    }
-                )
+                body_data: "QueryDriveActivityRequest" = {
+                    "pageSize": self.page_size,
+                    "ancestorName": f"items/{ancestor}",
+                    "filter": f"time > {int(start_time.timestamp() * 1000)} AND time <= {int(end_time.timestamp() * 1000)}",
+                }
+                if isinstance(next_page_token, str):
+                    body_data["pageToken"] = next_page_token
+                query = self.resource.query(body=body_data)
                 try:
                     results = await await_sync(query.execute)
                     # logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
@@ -521,12 +527,14 @@ class ActivityPoller(GoogleDrivePoller):
         return ActivityData(
             activity=activity,
             timestamp=datetime.datetime.strptime(time_info, timestmap_format),
-            target=next(map(self.get_target_info, activity["targets"]), None),
+            target=next(
+                map(self.get_target_info, activity["targets"]), (None, None, None)
+            ),
             action=action,
             action_detail=action_detail,
         )
 
-    def get_move_from(self, action_detail: dict) -> str:
+    def get_move_from(self, action_detail: dict) -> tuple[str, str | None, str | None]:
         removed_parents = action_detail["move"].get("removedParents", [{}])
         return self.get_target_info(removed_parents[0])
 
@@ -548,22 +556,23 @@ class ActivityPoller(GoogleDrivePoller):
 
     def get_action_info(self, actionDetail: dict) -> tuple:
         # Returns the type of action.
+        action_detail: Any
         for key in actionDetail:
             match key:
                 case "create":
-                    action_detail: str = self.get_one_of(actionDetail[key])
+                    action_detail = self.get_one_of(actionDetail[key])
                 case "move" if actionDetail[key].get("removedParents"):
                     removed_parents = actionDetail[key]["removedParents"]
                     if removed_parents:
-                        action_detail: tuple = self.get_target_info(removed_parents[0])
+                        action_detail = self.get_target_info(removed_parents[0])
                     else:
                         action_detail = None
                 case "rename" if actionDetail[key].get("oldTitle"):
-                    action_detail: str = actionDetail[key]["oldTitle"]
+                    action_detail = actionDetail[key]["oldTitle"]
                 case "delete" | "restore" | "dlpChange" | "reference":
-                    action_detail: str = actionDetail[key]["type"]
+                    action_detail = actionDetail[key]["type"]
                 case "permissionChange":
-                    action_detail: list = actionDetail[key]["addedPermissions"]
+                    action_detail = actionDetail[key]["addedPermissions"]
                 case "comment":
                     actionDetail[key].pop("mentionedUsers")
                     action_detail = actionDetail[key][
@@ -578,7 +587,9 @@ class ActivityPoller(GoogleDrivePoller):
             return key, action_detail
         return "unknown", None
 
-    def get_target_info(self, target: dict) -> tuple:
+    def get_target_info(
+        self, target: dict[str, Any]
+    ) -> tuple[str, str | None, str | None]:
         # Returns the type of a target and an associated title.
         if "driveItem" in target:
             title = target["driveItem"].get("title") or "unknown"
