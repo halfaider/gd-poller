@@ -50,13 +50,13 @@ gd-poller
     requirements.txt
 ```
 
-이런 폴더 구조로 설치되어 있다고 가정할 경우 설정 파일은 아래의 순서대로 탐색됩니다.
+이와 같은 폴더 구조에서 설정 파일은 아래 순서대로 로딩되며 나중에 읽은 파일이 이전 값을 덮어씁니다. 결과적으로 `${PWD}/settings.yaml` 파일이 모든 설정값을 최종적으로 확정하게 됩니다.
 
 ```
-/data/commands/gd-poller/gd_poller/settings.yaml
-${PWD}/settings.yaml
 /data/commands/gd-poller/gd_poller/config.yaml
 ${PWD}/config.yaml
+/data/commands/gd-poller/gd_poller/settings.yaml
+${PWD}/settings.yaml
 ```
 
 ### 설정 파일을 지정

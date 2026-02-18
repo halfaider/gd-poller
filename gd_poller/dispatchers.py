@@ -271,86 +271,122 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         ".m2ts",
         ".iso",
     }
+    VOD_ROOTS = (
+        Path("/ROOT/GDRIVE/VIDEO/방송중"),
+        Path("/ROOT/GDRIVE/VIDEO/방송중(기타)"),
+    )
+    MOVIE_ROOTS = (Path("/ROOT/GDRIVE/VIDEO/영화"),)
 
     def __init__(self, **kwds: Any) -> None:
         super().__init__(**kwds)
         self.pending_tasks: dict[str, asyncio.Task] = {}
         self.pending_stats: dict[str, dict[str, int]] = {}
 
+    @property
+    def default_stats(self) -> dict[str, int]:
+        return {"count": 0, "size": 0}
+
+    def _check_extension(self, path: Path) -> bool:
+        if path.suffix.lower() not in self.ALLOWED_EXTENSIONS:
+            logger.info(f"Skipped: {path.name} reason='Extension'")
+            return False
+        return True
+
+    async def _broadcast(
+        self, path: str, item_id: str, file_count: int = 0, total_size: int = 0
+    ) -> None:
+        logger.info(f"Broadcast: {path=} {item_id=}")
+        await asyncio.to_thread(
+            self.bot.api_broadcast_downloader,
+            path,
+            item_id,
+            file_count=file_count,
+            total_size=total_size,
+        )
+
     async def dispatch(self, data: ActivityData) -> None:
-        _, parent_id = data.parent
-        target = data.target
         if data.path is None:
             return
+        _, parent_id = data.parent
+        _, target_item, _ = data.target
+        target_id = (target_item or "").split("/")[-1]
         target_path = Path(self.get_mapping_path(data.path))
         if data.action not in self.ALLOWED_ACTIONS:
             logger.info(f"Skipped: {target_path.name} reason='Action'")
             return
-        if data.is_folder:
-            # 폴더의 파일 유무를 판단할 수 없음
-            logger.info(f"Skipped: {target_path.name} reason='Folder")
-            return
-        if target_path.suffix.lower() not in self.ALLOWED_EXTENSIONS:
-            logger.info(f"Skipped: {target_path.name} reason='Extention'")
-            return
-        vod_folders = ("/ROOT/GDRIVE/VIDEO/방송중", "/ROOT/GDRIVE/VIDEO/방송중(기타)")
-        movie_folder = "/ROOT/GDRIVE/VIDEO/영화"
-        if target_path.is_relative_to(movie_folder):
-            if parent_id is None:
-                logger.info(f"Skipped: {target_path.name} reason='No parent'")
+        # VOD 파일의 빈도가 많으니 먼저 검사
+        if any(target_path.is_relative_to(p) for p in self.VOD_ROOTS):
+            if data.is_folder:
+                logger.info(f"Skipped: {target_path.name} reason='Folder'")
                 return
-            stats = self.pending_stats.setdefault(parent_id, {"count": 0, "size": 0})
-            stats["count"] += 1
-            stats["size"] += getattr(data, "size", 0) or 0
-            if parent_id not in self.pending_tasks:
-                self.pending_tasks[parent_id] = asyncio.create_task(
-                    self._delayed_dispatch_worker(str(target_path.parent), parent_id)
-                )
-            else:
-                logger.info(f"Skipped: {target_path.name} reason='Already pending'")
-        elif any(target_path.is_relative_to(p) for p in vod_folders):
+            if not self._check_extension(target_path):
+                return
             if data.removed_path:
                 removed_path = Path(data.removed_path)
-                if any(removed_path.is_relative_to(p) for p in vod_folders):
+                if any(removed_path.is_relative_to(p) for p in self.VOD_ROOTS):
                     logger.info(
                         f"Skipped: {target_path.name} reason='Moved from {data.removed_path}'"
                     )
                     return
-            if target_item := target[1]:
-                target_id = target_item.split("/")[-1]
-                logger.info(f"Broadcast: {target_path=} {target_id=}")
-                await asyncio.to_thread(
-                    self.bot.api_broadcast_downloader,
-                    str(target_path),
-                    target_id,
-                    file_count=1,
-                    total_size=getattr(data, "size", 0) or 0,
-                )
+        # 영화는 루트 폴더로부터 3 단계 이상의 하위 폴더/파일
+        elif any(
+            target_path.is_relative_to(p) and len(target_path.relative_to(p).parts) > 2
+            for p in self.MOVIE_ROOTS
+        ):
+            if data.is_folder:
+                """
+                /ROOT/GDRIVE/VIDEO/영화/UHD/가/target
+                /ROOT/GDRIVE/VIDEO/영화/더빙/가/target
+                /ROOT/GDRIVE/VIDEO/영화/더빙 애니/가/target
+                /ROOT/GDRIVE/VIDEO/영화/제목/가/target
+                /ROOT/GDRIVE/VIDEO/영화/최신/2025.04/target
+                """
+                key = target_id
+                task_path = target_path
             else:
-                logger.error(f"No target ID: {target=}")
-        else:
-            ...
+                if parent_id is None:
+                    logger.info(f"Skipped: {target_path.name} reason='No parent'")
+                    return
+                if not self._check_extension(target_path):
+                    return
+                key = parent_id
+                task_path = target_path.parent
+            stats = self.pending_stats.setdefault(key, self.default_stats)
+            # 중복 검사하지 않아서 부정확
+            stats["count"] += 1
+            stats["size"] += getattr(data, "size", 0) or 0
+            if key in self.pending_tasks:
+                logger.debug(f"Skipped: {target_path.name} reason='Already pending'")
+            else:
+                self.pending_tasks[key] = asyncio.create_task(
+                    self._delayed_dispatch_worker(str(task_path), key)
+                )
+            return
 
-    async def _delayed_dispatch_worker(self, parent_path: str, parent_id: str) -> None:
-        try:
-            interval = getattr(self, "buffier_interval", 30)
-            await asyncio.sleep(interval)
-            stats = self.pending_stats.get(parent_id) or {"count": 0, "size": 0}
-            await asyncio.to_thread(
-                self.bot.api_broadcast_downloader,
-                parent_path,
-                parent_id,
-                file_count=stats["count"],
-                total_size=stats["size"],
+        else:
+            logger.info(
+                f"Skipped: {target_path.name} reason='Invalid directory hierarchy'"
             )
+            return
+        logger.info(f"Broadcast: {target_path=} {target_id=}")
+        await self._broadcast(
+            str(target_path), target_id, 1, getattr(data, "size", 0) or 0
+        )
+
+    async def _delayed_dispatch_worker(self, target_path: str, item_id: str) -> None:
+        try:
+            interval = getattr(self, "buffer_interval", 30)
+            await asyncio.sleep(interval)
+            stats = self.pending_stats.get(item_id) or self.default_stats
+            await self._broadcast(target_path, item_id, stats["count"], stats["size"])
         except asyncio.CancelledError:
-            logger.debug(f"Delayed dispatch cancelled: {parent_path=}")
+            logger.debug(f"Delayed dispatch cancelled: {target_path=}")
             raise
         except Exception as e:
             logger.exception(e)
         finally:
-            self.pending_tasks.pop(parent_id, None)
-            self.pending_stats.pop(parent_id, None)
+            self.pending_tasks.pop(item_id, None)
+            self.pending_stats.pop(item_id, None)
 
     async def on_stop(self) -> None:
         for task in self.pending_tasks.values():
