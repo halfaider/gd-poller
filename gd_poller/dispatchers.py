@@ -330,16 +330,16 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                     return
         # 영화는 루트 폴더로부터 3 단계 이상의 하위 폴더/파일
         elif any(
-            target_path.is_relative_to(p) and len(target_path.relative_to(p).parts) > 2
+            target_path.is_relative_to(p) and len(target_path.relative_to(p).parts) > 3
             for p in self.MOVIE_ROOTS
         ):
             if data.is_folder:
                 """
-                /ROOT/GDRIVE/VIDEO/영화/UHD/가/target
-                /ROOT/GDRIVE/VIDEO/영화/더빙/가/target
-                /ROOT/GDRIVE/VIDEO/영화/더빙 애니/가/target
-                /ROOT/GDRIVE/VIDEO/영화/제목/가/target
-                /ROOT/GDRIVE/VIDEO/영화/최신/2025.04/target
+                /ROOT/GDRIVE/VIDEO/영화/UHD/가/some folder/target
+                /ROOT/GDRIVE/VIDEO/영화/더빙/가/some folder/target
+                /ROOT/GDRIVE/VIDEO/영화/더빙 애니/가/some folder/target
+                /ROOT/GDRIVE/VIDEO/영화/제목/가/some folder/target
+                /ROOT/GDRIVE/VIDEO/영화/최신/2025.04/some folder/target
                 """
                 key = target_id
                 task_path = target_path
