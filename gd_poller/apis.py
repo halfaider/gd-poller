@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import HttpRequest
 from googleapiclient import errors
 
-from .helpers.helpers import apply_cache, get_ttl_hash
+from .helpers.helpers import apply_cache
 from .helpers.sessions import HelperSession, parse_response
 
 if TYPE_CHECKING:
@@ -230,6 +230,7 @@ class GoogleDrive(Api):
         )
         if self.cache_enable:
             self.get_file = apply_cache(self.get_file, self.cache_maxsize)
+            self.get_files = apply_cache(self.get_files, self.cache_maxsize)
 
     @property
     def token(self) -> dict[str, Any]:
@@ -275,10 +276,7 @@ class GoogleDrive(Api):
             current_path = [(file.get("name"), file.get("id"))]
             break_counter = 100
             while (parents := file.get("parents")) and break_counter > 0:
-                ttl_hash = (
-                    get_ttl_hash(self.cache_ttl) if self.cache_enable else time.time()
-                )
-                file = self.get_file(parents[0], ttl_hash=ttl_hash)
+                file = self.get_file(parents[0], ttl_hash=self.get_ttl_hash())
                 if not file:
                     return None
                 if root and file.get("id") == ancestor_id:
@@ -293,7 +291,7 @@ class GoogleDrive(Api):
         full_path = pathlib.Path(*(p[0] for p in current_path[::-1] if p[0]))
         parent = current_path[1] if len(current_path) > 1 else current_path[0]
         if self.cache_enable:
-            logger.debug(cast(Any, self.get_file).cache_info())
+            logger.debug(f"get_file(): {cast(Any, self.get_file).cache_info()}")
         return str(full_path), parent, web_view, size
 
     def get_file(
@@ -301,7 +299,7 @@ class GoogleDrive(Api):
         item_id: str,
         fields: str = "id, name, parents, mimeType, webViewLink, size",
         ttl_hash: int | float = 3600,
-    ) -> "File | None":
+    ) -> dict[str, Any] | None:
         try:
             result = (
                 self.api_drive.files()
@@ -313,22 +311,67 @@ class GoogleDrive(Api):
                 .execute()
             )
             # logger.debug(f'file={result}')
-            return result
+            return cast(dict, result)
         except Exception as e:
             self.handle_error(e)
-            return None
 
-    def get_files(self, query: str) -> "FileList":
-        result = (
-            self.api_drive.files()
-            .list(
-                q=query,
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
+    def get_files(
+        self,
+        query: str,
+        order_by: str = "folder,modifiedTime desc,name",
+        page_token: str | None = None,
+        page_size: int = 100,
+        ttl_hash: int | float = 3600,
+    ) -> dict[str, Any] | None:
+        try:
+            result = (
+                self.api_drive.files()
+                .list(
+                    q=query,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    orderBy=order_by,
+                    pageToken=page_token if page_token else "",
+                    pageSize=page_size,
+                )
+                .execute()
             )
-            .execute()
-        )
-        return result
+            return cast(dict, result)
+        except Exception as e:
+            self.handle_error(e)
+
+    def get_children(
+        self, folder_id: str, limit: int = 100
+    ) -> list[tuple[str, str, str, int]]:
+        """
+        Returns:
+            tuple: id, name, mime_type, size
+        """
+        file_list = []
+        try:
+            # 캐시 없이 검색
+            files = self.get_files(
+                f"'{folder_id}' in parents and trashed = false", page_size=limit
+            )
+            if files is None:
+                return file_list
+            for file in files.get("files") or ():
+                file_mime = file.get("mimeType") or ""
+                file_id = file.get("id") or ""
+                file_name = file.get("name") or ""
+                file_result = self.get_file(file_id, ttl_hash=self.get_ttl_hash()) or {}
+                try:
+                    file_size = int(file_result.get("size") or 0)
+                except Exception:
+                    file_size = 0
+                file_list.append((file_id, file_name, file_mime, file_size))
+            if self.cache_enable:
+                logger.debug(f"get_files(): {cast(Any, self.get_files).cache_info()}")
+                logger.debug(f"get_file(): {cast(Any, self.get_file).cache_info()}")
+        except Exception as e:
+            self.handle_error(e)
+        finally:
+            return file_list
 
     def handle_error(self, error: Exception) -> None:
         if isinstance(error, errors.HttpError):
@@ -337,6 +380,11 @@ class GoogleDrive(Api):
             )
         else:
             logger.exception(error)
+
+    def get_ttl_hash(self) -> int | float:
+        if self.cache_enable:
+            return round(time.time() / self.cache_ttl)
+        return time.time()
 
 
 class Rclone(Api):
@@ -554,8 +602,8 @@ class Kavita(Api):
             "json": {
                 "libraryId": library_id,
                 "seriesId": series_id,
-                "forceUPdate": force,
-                "forceColoerscape": colorscape,
+                "forceUpdate": force,
+                "forceColorscape": colorscape,
             }
         }
 

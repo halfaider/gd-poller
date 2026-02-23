@@ -14,7 +14,7 @@ from .models import ActivityData
 from .helpers.helpers import await_sync, check_tasks, get_bool, get_int
 
 if TYPE_CHECKING:
-    from googleapiclient._apis.driveactivity.v2 import QueryDriveActivityRequest # type: ignore[import-not-found]
+    from googleapiclient._apis.driveactivity.v2 import QueryDriveActivityRequest  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -372,6 +372,12 @@ class ActivityPoller(GoogleDrivePoller):
                     )
                     data.path = f"/unknown/{data.target[0]}"
             data.parent = parent
+            # 폴더일 경우 자식 조회 (자식 파일 수는  100개로 제한)
+            if data.is_folder and isinstance(target_id, str):
+                async with self.semaphore:
+                    data.children = await asyncio.to_thread(
+                        self.drive.get_children, target_id, 100
+                    )
             # url 링크
             if web_view:
                 data.link = web_view.strip()

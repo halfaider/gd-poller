@@ -288,7 +288,6 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
 
     def _check_extension(self, path: Path) -> bool:
         if path.suffix.lower() not in self.ALLOWED_EXTENSIONS:
-            logger.info(f"Skipped: {path.name} reason='Extension'")
             return False
         return True
 
@@ -311,52 +310,53 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         _, target_item, _ = data.target
         target_id = (target_item or "").split("/")[-1]
         target_path = Path(self.get_mapping_path(data.path))
+        skip_msg = f"Skipped: '{target_path.name}' reason="
         if data.action not in self.ALLOWED_ACTIONS:
-            logger.info(f"Skipped: {target_path.name} reason='Action'")
+            logger.info(f"{skip_msg}'Action'")
             return
         # VOD 파일의 빈도가 많으니 먼저 검사
         if any(target_path.is_relative_to(p) for p in self.VOD_ROOTS):
             if data.is_folder:
-                logger.info(f"Skipped: {target_path.name} reason='Folder'")
+                logger.info(f"{skip_msg}'folder'")
                 return
             if not self._check_extension(target_path):
+                logger.info(f"{skip_msg}'Extension'")
                 return
             if data.removed_path:
                 removed_path = Path(data.removed_path)
                 if any(removed_path.is_relative_to(p) for p in self.VOD_ROOTS):
                     logger.info(
-                        f"Skipped: {target_path.name} reason='Moved from {data.removed_path}'"
+                        f"{skip_msg}'Moved from {data.removed_path}'"
                     )
                     return
-        # 영화는 루트 폴더로부터 3 단계 이상의 하위 폴더/파일
-        elif any(
-            target_path.is_relative_to(p) and len(target_path.relative_to(p).parts) > 3
-            for p in self.MOVIE_ROOTS
-        ):
+        elif any(target_path.is_relative_to(p) for p in self.MOVIE_ROOTS):
             if data.is_folder:
-                """
-                /ROOT/GDRIVE/VIDEO/영화/UHD/가/some folder/target
-                /ROOT/GDRIVE/VIDEO/영화/더빙/가/some folder/target
-                /ROOT/GDRIVE/VIDEO/영화/더빙 애니/가/some folder/target
-                /ROOT/GDRIVE/VIDEO/영화/제목/가/some folder/target
-                /ROOT/GDRIVE/VIDEO/영화/최신/2025.04/some folder/target
-                """
+                if not any(
+                    self._check_extension(Path(child[1])) for child in data.children
+                ):
+                    logger.info(f"{skip_msg}'Extension'")
+                    return
                 key = target_id
                 task_path = target_path
             else:
                 if parent_id is None:
-                    logger.info(f"Skipped: {target_path.name} reason='No parent'")
+                    logger.info(f"{skip_msg}'No parent'")
                     return
                 if not self._check_extension(target_path):
+                    logger.info(f"{skip_msg}'Extension'")
                     return
                 key = parent_id
                 task_path = target_path.parent
-            stats = self.pending_stats.setdefault(key, self.default_stats)
             # 중복 검사하지 않아서 부정확
-            stats["count"] += 1
-            stats["size"] += getattr(data, "size", 0) or 0
+            stats = self.pending_stats.setdefault(key, self.default_stats)
+            if data.is_folder:
+                stats["count"] = len(data.children)
+                stats["size"] = sum(child[-1] for child in data.children)
+            else:
+                stats["count"] += 1
+                stats["size"] += getattr(data, "size", 0) or 0
             if key in self.pending_tasks:
-                logger.debug(f"Skipped: {target_path.name} reason='Already pending'")
+                logger.debug(f"{skip_msg}'Already pending'")
             else:
                 self.pending_tasks[key] = asyncio.create_task(
                     self._delayed_dispatch_worker(str(task_path), key)
@@ -364,9 +364,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
             return
 
         else:
-            logger.info(
-                f"Skipped: {target_path.name} reason='Invalid directory hierarchy'"
-            )
+            logger.info(f"{skip_msg}'Invalid directory hierarchy'")
             return
         logger.info(f"Broadcast: {target_path=} {target_id=}")
         await self._broadcast(

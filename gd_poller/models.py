@@ -133,6 +133,7 @@ class ActivityData(BaseModel):
     poller: str = ""
     parent: tuple[str | None, str | None] = (None, None)
     size: int = 0
+    children: list = []
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ActivityData):
