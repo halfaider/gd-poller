@@ -54,13 +54,13 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
 
     api에 추가적인 데이터가 필요하지 않은 경우 리턴하지 않음
 
-        @Api.http_api('/version')
+        @http_api('/version')
         def no_return(self) -> dict:
             pass
 
     api 경로는 python 포멧 형식으로 작성할 수 있고 포멧 키워드는 메소드에서 입력받은 동일한 이름의 파라미터 값으로 대체 됨
 
-        @Api.http_api('/path/{sub_path}', method='POST')
+        @http_api('/path/{sub_path}', method='POST')
         def test(self, sub_path: str) -> dict:
             pass
 
@@ -68,7 +68,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
 
     혹은 'format' 값을 직접 return 하여 동적으로 api 경로를 생성할 수 있음
 
-        @Api.http_api('/path/{sub_path}/{extra_path}')
+        @http_api('/path/{sub_path}/{extra_path}')
         def test(self, sub_path: str) -> dict:
             return {
                 'format': {
