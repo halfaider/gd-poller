@@ -31,11 +31,13 @@ class GoogleDriveTokenConfig(BaseModel):
 
 class GoogleDriveConfig(BaseModel):
     scopes: tuple[str, ...] = ("drive.readonly", "drive.activity.readonly")
-    token: GoogleDriveTokenConfig = GoogleDriveTokenConfig(
-        client_id="",
-        client_secret="",
-        refresh_token="",
-        token="",
+    token: GoogleDriveTokenConfig = Field(
+        default_factory=lambda: GoogleDriveTokenConfig(
+            client_id="",
+            client_secret="",
+            refresh_token="",
+            token="",
+        )
     )
     cache_enable: bool = False
     cache_ttl: int = 600
@@ -75,7 +77,9 @@ class DispatcherConfig(BaseModel):
 class PollerConfig(GlobalConfig):
     targets: tuple[str, ...]
     name: str | None = None
-    dispatchers: tuple[DispatcherConfig, ...] = (DispatcherConfig(),)
+    dispatchers: tuple[DispatcherConfig, ...] = Field(
+        default_factory=lambda: (DispatcherConfig(),)
+    )
     polling_interval: int | None = None
     polling_delay: int | None = None
     dispatch_interval: int | None = None
@@ -93,9 +97,9 @@ class AppSettings(GlobalConfig, _BaseSettings):
     앱 실행시 사용하는 설정값 클래스
     """
 
-    google_drive: GoogleDriveConfig = GoogleDriveConfig()
+    google_drive: GoogleDriveConfig = Field(default_factory=GoogleDriveConfig)
     pollers: tuple[PollerConfig, ...] = ()
-    logging: LoggingConfig = LoggingConfig()
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
@@ -116,13 +120,15 @@ class AppSettings(GlobalConfig, _BaseSettings):
 
 @functools.total_ordering
 class ActivityData(BaseModel):
-    activity: dict = {}
+    activity: dict = Field(default_factory=dict)
     # title, name, tymimeType
     target: tuple[str | None, str | None, str | None] = (None, None, None)
     action: str = ""
     action_detail: str | tuple | list | None = None
     priority: float = 0.0  # timestamp()
-    timestamp: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
+    timestamp: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
     timestamp_text: str = ""
     ancestor: str = ""
     root: str | None = ""
@@ -133,7 +139,7 @@ class ActivityData(BaseModel):
     poller: str = ""
     parent: tuple[str | None, str | None] = (None, None)
     size: int = 0
-    children: list = []
+    children: list = Field(default_factory=list)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ActivityData):

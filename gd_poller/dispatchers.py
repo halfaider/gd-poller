@@ -390,6 +390,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
             task.cancel()
         if self.pending_tasks:
             await asyncio.gather(*self.pending_tasks.values(), return_exceptions=True)
+        self.pending_tasks.clear()
         self.pending_stats.clear()
 
 
