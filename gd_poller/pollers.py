@@ -333,9 +333,8 @@ class ActivityPoller(GoogleDrivePoller):
                 logger.debug(f"Skipped: target={data.target} reason={data.action}")
                 return
             # 폴더 타입 확인
-            if data.target[2] in (
-                "application/vnd.google-apps.folder",
-                "application/vnd.google-apps.shortcut",
+            if isinstance(data.target[2], str) and any(
+                folder_type in data.target[2] for folder_type in ("folder", "shortcut")
             ):
                 data.is_folder = True
             # 폴더 무시 판단
@@ -376,7 +375,7 @@ class ActivityPoller(GoogleDrivePoller):
             if data.is_folder and isinstance(target_id, str):
                 async with self.semaphore:
                     data.children = await asyncio.to_thread(
-                        self.drive.get_children, target_id, 100
+                        self.drive.get_children, target_id, 100, True
                     )
             # url 링크
             if web_view:

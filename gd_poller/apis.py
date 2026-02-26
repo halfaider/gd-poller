@@ -297,7 +297,7 @@ class GoogleDrive(Api):
     def get_file(
         self,
         item_id: str,
-        fields: str = "id, name, parents, mimeType, webViewLink, size",
+        fields: str = "id, name, parents, mimeType, webViewLink, size, shortcutDetails",
         ttl_hash: int | float = 3600,
     ) -> dict[str, Any] | None:
         try:
@@ -341,7 +341,7 @@ class GoogleDrive(Api):
             self.handle_error(e)
 
     def get_children(
-        self, folder_id: str, limit: int = 100
+        self, folder_id: str, limit: int = 100, is_shortcut: bool = False
     ) -> list[tuple[str, str, str, int]]:
         """
         Returns:
@@ -349,6 +349,19 @@ class GoogleDrive(Api):
         """
         file_list = []
         try:
+            try:
+                if is_shortcut:
+                    shortcut_file = self.get_file(
+                        folder_id, ttl_hash=self.get_ttl_hash()
+                    )
+                    if shortcut_file and (
+                        target_id := (shortcut_file.get("shortcutDetails") or {}).get(
+                            "targetId"
+                        )
+                    ):
+                        folder_id = target_id
+            except Exception as e:
+                self.handle_error(e)
             # 캐시 없이 검색
             files = self.get_files(
                 f"'{folder_id}' in parents and trashed = false", page_size=limit
