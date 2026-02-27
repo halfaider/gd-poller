@@ -3,6 +3,7 @@ import html
 import pathlib
 import logging
 import inspect
+import asyncio
 import functools
 import urllib.parse
 from typing import Any, Optional, Callable, Sequence, TYPE_CHECKING, cast
@@ -20,8 +21,6 @@ from .helpers.sessions import HelperSession, parse_response
 if TYPE_CHECKING:
     from googleapiclient._apis.drive.v3 import DriveResource  # type: ignore[import-not-found]
     from googleapiclient._apis.driveactivity.v2 import DriveActivityResource  # type: ignore[import-not-found]
-    from googleapiclient._apis.drive.v3.schemas import File  # type: ignore[import-not-found]
-    from googleapiclient._apis.drive.v3.schemas import FileList  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +147,7 @@ class Api:
         self._cache_ttl = cache_ttl
         self._cache_maxsize = cache_maxsize
         self._session = HelperSession()
+        self._semaphore = asyncio.Semaphore(5)
 
     @property
     def url(self) -> str:
@@ -229,6 +229,7 @@ class GoogleDrive(Api):
             http=authorized_http,
         )
         if self.cache_enable:
+            # 메소드에 직접 데코레이터를 사용하는 대신 __init__ 에서 캐시를 씌우면 각 객체별로 독립적인 캐시를 갖게 됨
             self.get_file = apply_cache(self.get_file, self.cache_maxsize)
             self.get_files = apply_cache(self.get_files, self.cache_maxsize)
 
@@ -257,14 +258,15 @@ class GoogleDrive(Api):
         new_http = AuthorizedHttp(self.credentials, http=Http())
         return HttpRequest(cast(Http, new_http), *args, **kwargs)
 
-    def get_full_path(
+    async def get_full_path(
         self, item_id: str, ancestor_id: str = "", root: str = ""
     ) -> tuple[str, tuple[str | None, str | None], str, str | int] | None:
         if not item_id:
             logger.error(f'ID를 확인하세요: "{item_id}"')
             return None
-        # do not use cache
-        file = self.get_file(item_id, ttl_hash=time.time())
+        async with self._semaphore:
+            # do not use cache
+            file = await asyncio.to_thread(self.get_file, item_id, ttl_hash=time.time())
         if not file:
             return None
         web_view = file.get("webViewLink") or ""
@@ -276,7 +278,10 @@ class GoogleDrive(Api):
             current_path = [(file.get("name"), file.get("id"))]
             break_counter = 100
             while (parents := file.get("parents")) and break_counter > 0:
-                file = self.get_file(parents[0], ttl_hash=self.get_ttl_hash())
+                async with self._semaphore:
+                    file = await asyncio.to_thread(
+                        self.get_file, parents[0], ttl_hash=self.get_ttl_hash()
+                    )
                 if not file:
                     return None
                 if root and file.get("id") == ancestor_id:
@@ -333,6 +338,7 @@ class GoogleDrive(Api):
                     orderBy=order_by,
                     pageToken=page_token if page_token else "",
                     pageSize=page_size,
+                    fields="nextPageToken, files(id, name, mimeType, size)",
                 )
                 .execute()
             )
@@ -340,7 +346,7 @@ class GoogleDrive(Api):
         except Exception as e:
             self.handle_error(e)
 
-    def get_children(
+    async def get_children(
         self, folder_id: str, limit: int = 100, is_shortcut: bool = False
     ) -> list[tuple[str, str, str, int]]:
         """
@@ -351,9 +357,10 @@ class GoogleDrive(Api):
         try:
             try:
                 if is_shortcut:
-                    shortcut_file = self.get_file(
-                        folder_id, ttl_hash=self.get_ttl_hash()
-                    )
+                    async with self._semaphore:
+                        shortcut_file = await asyncio.to_thread(
+                            self.get_file, folder_id, ttl_hash=self.get_ttl_hash()
+                        )
                     if shortcut_file and (
                         target_id := (shortcut_file.get("shortcutDetails") or {}).get(
                             "targetId"
@@ -363,20 +370,19 @@ class GoogleDrive(Api):
             except Exception as e:
                 self.handle_error(e)
             # 캐시 없이 검색
-            files = self.get_files(
-                f"'{folder_id}' in parents and trashed = false", page_size=limit
-            )
+            async with self._semaphore:
+                files = await asyncio.to_thread(
+                    self.get_files,
+                    f"'{folder_id}' in parents and trashed = false",
+                    page_size=limit,
+                )
             if files is None:
                 return file_list
             for file in files.get("files") or ():
                 file_mime = file.get("mimeType") or ""
                 file_id = file.get("id") or ""
                 file_name = file.get("name") or ""
-                file_result = self.get_file(file_id, ttl_hash=self.get_ttl_hash()) or {}
-                try:
-                    file_size = int(file_result.get("size") or 0)
-                except Exception:
-                    file_size = 0
+                file_size = file.get("size") or 0
                 file_list.append((file_id, file_name, file_mime, file_size))
             if self.cache_enable:
                 logger.debug(f"get_files(): {cast(Any, self.get_files).cache_info()}")

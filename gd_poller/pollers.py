@@ -6,12 +6,12 @@ import logging
 import asyncio
 import datetime
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, Sequence, TYPE_CHECKING
+from typing import Any, Iterable, Sequence, TYPE_CHECKING, cast
 
 from . import dispatchers
 from .apis import GoogleDrive
 from .models import ActivityData
-from .helpers.helpers import await_sync, check_tasks, get_bool, get_int
+from .helpers.helpers import check_tasks, get_bool, get_int
 
 if TYPE_CHECKING:
     from googleapiclient._apis.driveactivity.v2 import QueryDriveActivityRequest  # type: ignore[import-not-found]
@@ -311,7 +311,7 @@ class ActivityPoller(GoogleDrivePoller):
     def __init__(self, *args: Any, **kwds: Any):
         super().__init__(*args, **kwds)
         self.resource = self.drive.api_activity.activity()
-        self.semaphore = asyncio.Semaphore(5)
+        self._semaphore = asyncio.Semaphore(5)
 
     async def dispatch(self) -> None:
         logger.info(f"Dispatching task starts: {self.name}")
@@ -352,13 +352,9 @@ class ActivityPoller(GoogleDrivePoller):
             path_info = None
             if data.target[1] is not None:
                 target_id = data.target[1].partition("/")[-1]
-                async with self.semaphore:
-                    path_info = await asyncio.to_thread(
-                        self.drive.get_full_path,
-                        target_id,
-                        data.ancestor,
-                        data.root or "",
-                    )
+                path_info = await self.drive.get_full_path(
+                    target_id, data.ancestor, data.root or ""
+                )
             data.path = None
             parent = (None, None)
             web_view = None
@@ -373,10 +369,7 @@ class ActivityPoller(GoogleDrivePoller):
             data.parent = parent
             # 폴더일 경우 자식 조회 (자식 파일 수는  100개로 제한)
             if data.is_folder and isinstance(target_id, str):
-                async with self.semaphore:
-                    data.children = await asyncio.to_thread(
-                        self.drive.get_children, target_id, 100, True
-                    )
+                data.children = await self.drive.get_children(target_id, 100, True)
             # url 링크
             if web_view:
                 data.link = web_view.strip()
@@ -390,13 +383,9 @@ class ActivityPoller(GoogleDrivePoller):
                 try:
                     removed_parent_id = data.action_detail[1].partition("/")[-1]
                     # 다른 ancestor에서 이동된 경우 경로 매핑이 어려움
-                    async with self.semaphore:
-                        removed_path_info = await asyncio.to_thread(
-                            self.drive.get_full_path,
-                            removed_parent_id,
-                            data.ancestor,
-                            data.root or "",
-                        )
+                    removed_path_info = await self.drive.get_full_path(
+                        removed_parent_id, data.ancestor, data.root or ""
+                    )
                     if removed_path_info:
                         removed_path, _, _, _ = removed_path_info
                         data.removed_path = str(
@@ -484,7 +473,8 @@ class ActivityPoller(GoogleDrivePoller):
                     body_data["pageToken"] = next_page_token
                 query = self.resource.query(body=body_data)
                 try:
-                    results = await await_sync(query.execute)
+                    async with self._semaphore:
+                        results = await asyncio.to_thread(query.execute)
                     # logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
                 except Exception as e:
                     self.drive.handle_error(e)
@@ -507,7 +497,7 @@ class ActivityPoller(GoogleDrivePoller):
                 # activity가 1 개라도 있으면 start_time를 갱신
                 timestamps[0] = end_time
                 for activity in activities:
-                    data = self.get_activity(activity)
+                    data = self.get_activity(cast(dict, activity))
                     data.ancestor = ancestor
                     data.root = root
                     data.priority = data.timestamp.timestamp()
@@ -520,7 +510,7 @@ class ActivityPoller(GoogleDrivePoller):
             except:
                 logger.exception(f"{ancestor=}")
 
-    def get_activity(self, activity: dict) -> ActivityData:
+    def get_activity(self, activity: dict[str, Any]) -> ActivityData:
         # logger.debug(f'{activity["primaryActionDetail"]=}')
         # logger.debug(f'{activity["actions"]=}')
         # logger.debug(f'{activity["targets"]=}')
@@ -551,7 +541,7 @@ class ActivityPoller(GoogleDrivePoller):
             return key
         return "unknown"
 
-    def get_time_info(self, activity: dict) -> str:
+    def get_time_info(self, activity: dict[str, Any]) -> str:
         # Returns a time associated with an activity.
         if "timestamp" in activity:
             return activity["timestamp"]
@@ -559,7 +549,7 @@ class ActivityPoller(GoogleDrivePoller):
             return activity["timeRange"]["endTime"]
         return "unknown"
 
-    def get_action_info(self, actionDetail: dict) -> tuple:
+    def get_action_info(self, actionDetail: dict[str, Any]) -> tuple:
         # Returns the type of action.
         action_detail: Any
         for key in actionDetail:
