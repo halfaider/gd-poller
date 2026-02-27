@@ -382,7 +382,10 @@ class GoogleDrive(Api):
                 file_mime = file.get("mimeType") or ""
                 file_id = file.get("id") or ""
                 file_name = file.get("name") or ""
-                file_size = file.get("size") or 0
+                try:
+                    file_size = int(file.get("size") or 0)
+                except Exception:
+                    file_size = 0
                 file_list.append((file_id, file_name, file_mime, file_size))
             if self.cache_enable:
                 logger.debug(f"get_files(): {cast(Any, self.get_files).cache_info()}")
