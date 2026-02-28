@@ -29,12 +29,12 @@ def main(*args: Any) -> None:
         help=dedent(
             f"""\
             설정 파일의 경로.
-            지정하지 않으면 다음의 경로 순으로 찾습니다.
-            - {package_path / 'settings.yaml'}
-            - {Path.cwd() / 'settings.yaml'}
+            지정하지 않으면 아래 순서대로 로딩되며 나중에 읽은 파일이 이전 값을 덮어씁니다.
             - {package_path / 'config.yaml'}
             - {Path.cwd() / 'config.yaml'}
-        """
+            - {package_path / 'settings.yaml'}
+            - {Path.cwd() / 'settings.yaml'}
+            """
         ),
         default=None,
     )
