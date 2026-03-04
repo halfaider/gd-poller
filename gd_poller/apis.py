@@ -14,6 +14,7 @@ from google.oauth2 import credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import HttpRequest
 from googleapiclient import errors
+from requests.structures import CaseInsensitiveDict
 
 from .helpers.helpers import apply_cache
 from .helpers.sessions import HelperSession, parse_response
@@ -88,7 +89,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
             params: dict | None = api.get("params")
             data: dict | None = api.get("data")
             json_: dict | None = api.get("json")
-            headers: dict | None = api.get("headers")
+            headers = CaseInsensitiveDict(api.get("headers"))
             auth: tuple | None = api.get("auth")
             url: str = urllib.parse.urlunparse(
                 (
@@ -100,17 +101,19 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
                     self.url_parts.fragment,
                 )
             )
-            """
-                {
-                    'status_code': 200,
-                    'content': '...',
-                    'exception': None,
-                    'json': {...},
-                    'url': 'https://...',
-                }
-                """
+            if "user-agent" not in headers:
+                headers["user-agent"] = "gd-poller/0.7.5"
             self.get_sleep_enough(interval)
             self.last_executed_timestamp = time.time()
+            """
+            {
+                'status_code': 200,
+                'content': '...',
+                'exception': None,
+                'json': {...},
+                'url': 'https://...',
+            }
+            """
             return parse_response(
                 self.session.request(
                     method,
