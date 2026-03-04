@@ -9,20 +9,20 @@ from .helpers import await_sync
 logger = logging.getLogger(__name__)
 
 DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 }
 
 
 class HelperSession(requests.Session):
 
-    def __init__(self, headers: dict = None, auth: tuple = None, proxies: dict = None) -> None:
+    def __init__(self, headers: dict | None = None, auth: tuple | None = None, proxies: dict | None = None) -> None:
         super().__init__()
         self.headers.update(DEFAULT_HEADERS)
         if headers:
             self.headers.update(headers)
 
-    def request(self, method: str, url: str, **kwds: Any) -> requests.Response:
-        return super().request(method, url, **kwds)
+    def request(self, method: str, url: str, *args: Any, **kwds: Any) -> requests.Response:
+        return super().request(method, url, *args, **kwds)
 
 
 def get_traceback_response(tb: str) -> requests.Response:
