@@ -1,6 +1,21 @@
 import re
+import sys
 
 from PTN.parse import PTN
+from PTN.patterns import patterns, delimiters
+from PTN.extras import link_patterns
+
+patterns["season"].append(
+    r"\b(?:Complete"
+    + delimiters
+    + ")?s([0-9]{1,3})"
+    + link_patterns(patterns["episode"])
+    + r"?\b"
+)
+patterns["season"].append(
+    r"\b(?:Complete" + delimiters + r")?Season[\. -]([0-9]{1,3})\b"
+)
+patterns["season"].append(r"\b([0-9]{1,3})x[0-9]{2}\b")
 
 
 class FilenameParser(PTN):
@@ -85,3 +100,8 @@ def filename_parse(
     filename: str, standardise: bool = True, coherent_types: bool = False
 ) -> dict:
     return FilenameParser().parse(filename, standardise, coherent_types)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 0:
+        print(filename_parse(sys.argv[1]))
