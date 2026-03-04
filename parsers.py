@@ -41,19 +41,29 @@ class FilenameParser(PTN):
         if not title_val or not title_span:
             return
 
-        raw_title_part = self.torrent_name[title_span[0] : title_span[1]]
-        cleaned_raw = " ".join(raw_title_part.replace(".", " ").split()).strip()
+        anchor_match = next(
+            (
+                match
+                for ptn in self.KOR_PATTERNS["title"]
+                if (match := ptn.search(self.torrent_name))
+            ),
+            None,
+        )
 
-        if cleaned_raw != raw_title_part:
-            if title_span in self.match_slices:
-                self.match_slices.remove(title_span)
+        if anchor_match:
+            anchor_start, anchor_end = anchor_match.span("title")
+            if anchor_end < title_span[1]:
+                if title_span in self.match_slices:
+                    self.match_slices.remove(title_span)
 
-            start_offset = raw_title_part.find(cleaned_raw)
-            new_start = title_span[0] + start_offset
-            new_end = new_start + len(cleaned_raw)
-
-            self._part("title", (new_start, new_end), cleaned_raw, overwrite=True)
-            title_span = (new_start, new_end)
+                raw_anchor_title = anchor_match.group("title")
+                cleaned_anchor = " ".join(
+                    raw_anchor_title.replace(".", " ").split()
+                ).strip()
+                self._part(
+                    "title", (anchor_start, anchor_end), cleaned_anchor, overwrite=True
+                )
+                title_span = (anchor_start, anchor_end)
 
         date_match = next(
             (
