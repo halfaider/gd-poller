@@ -102,7 +102,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
                 )
             )
             if "user-agent" not in headers:
-                headers["user-agent"] = "gd-poller/0.7.5"
+                headers["user-agent"] = "gd-poller/0.7.6"
             self.get_sleep_enough(interval)
             self.last_executed_timestamp = time.time()
             """
