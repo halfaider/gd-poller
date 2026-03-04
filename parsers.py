@@ -27,7 +27,7 @@ class FilenameParser(PTN):
             return
 
         raw_title_part = self.torrent_name[title_span[0] : title_span[1]]
-        cleaned_raw = raw_title_part.strip(" .")
+        cleaned_raw = " ".join(raw_title_part.replace(".", " ").split()).strip()
 
         if cleaned_raw != raw_title_part:
             if title_span in self.match_slices:
