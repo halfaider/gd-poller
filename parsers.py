@@ -79,3 +79,9 @@ class FilenameParser(PTN):
                     )
 
             self.merge_match_slices()
+
+
+def filename_parse(
+    filename: str, standardise: bool = True, coherent_types: bool = False
+) -> dict:
+    return FilenameParser().parse(filename, standardise, coherent_types)
