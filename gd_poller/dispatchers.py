@@ -155,7 +155,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
 
     async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
         parent, activities = item
-        logger.debug(f"Broadcast: {parent}")
+        logger.debug(f"[GDS] broadcast: {parent}")
         # 한번에 처리되기 때문에 파일의 상태는 마지막 activity로 결정
         acts_by_path = {act.path: act for act in activities if act.path}
         deletes = {"file": [], "folder": []}
@@ -168,10 +168,10 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
                 logger.warning(f"No applicable action: {act.action} in '{parent}'")
                 continue
             if act.action == "create" and act.is_folder:
-               logger.warning(
-                   f"Skipped: name='{act.target[0]}' reason='Folder created'"
-               )
-               continue
+                logger.warning(
+                    f"[GDS] skipped: name='{act.target[0]}' reason='Folder created'"
+                )
+                continue
             target = Path(path)
             suffix = target.suffix.lower()
             mode = "ADD"
@@ -200,7 +200,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             for act_list in deletes.values():
                 for act in act_list:
                     logger.debug(
-                        f"Skipped: action='{act.action}' name='{act.target[0]}' reason='Multiple items'"
+                        f"[GDS] skipped: action='{act.action}' name='{act.target[0]}' reason='Multiple items'"
                     )
         else:
             for act_list in deletes.values():
@@ -218,7 +218,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
         for idx, target in enumerate(files + folders + info_files):
             mode, act = target
             if idx > 0:
-                logger.debug(f'Skipped: {act.target[0]} reason="Multiple items"')
+                logger.debug(f'[GDS] skipped: {act.target[0]} reason="Multiple items"')
                 continue
             targets.append((act.path, mode))
         for target in targets:
@@ -293,7 +293,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
     async def _broadcast(
         self, path: str, item_id: str, file_count: int = 0, total_size: int = 0
     ) -> None:
-        logger.info(f"Broadcast: {path=} {item_id=}")
+        logger.info(f"[Downloader] Broadcast: {path=} {item_id=}")
         await asyncio.to_thread(
             self.bot.api_broadcast_downloader,
             path,
@@ -309,25 +309,44 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         _, target_item, _ = data.target
         target_id = (target_item or "").split("/")[-1]
         target_path = Path(self.get_mapping_path(data.path))
-        skip_msg = f"Skipped: '{target_path.name}' reason="
+        skip_msg = f"[Downloader] skipped: '{target_path.name}' reason="
         if data.action not in self.ALLOWED_ACTIONS:
             logger.info(f"{skip_msg}'Action'")
             return
+        broadcast_applicables = []
         # VOD 파일의 빈도가 많으니 먼저 검사
         if any(target_path.is_relative_to(p) for p in self.VOD_ROOTS):
             if data.is_folder:
-                logger.info(f"{skip_msg}'folder'")
-                return
-            if not self._check_extension(target_path):
-                logger.info(f"{skip_msg}'Extension'")
-                return
-            if data.removed_path:
-                removed_path = Path(data.removed_path)
-                if any(removed_path.is_relative_to(p) for p in self.VOD_ROOTS):
-                    logger.info(
-                        f"{skip_msg}'Moved from {data.removed_path}'"
-                    )
+                if not data.children:
+                    logger.info(f"{skip_msg}'Empty folder'")
                     return
+                for child in data.children:
+                    if not self._check_extension(Path(child[1])):
+                        logger.info(
+                            f"[Downloader] skipped: '{child[1]}' reason='Extension'"
+                        )
+                        continue
+                    child_path = target_path.with_name(child[1])
+                    broadcast_applicables.append(
+                        (str(child_path), child[0], 1, child[3])
+                    )
+            else:
+                if not self._check_extension(target_path):
+                    logger.info(f"{skip_msg}'Extension'")
+                    return
+                if data.removed_path:
+                    removed_path = Path(data.removed_path)
+                    if any(removed_path.is_relative_to(p) for p in self.VOD_ROOTS):
+                        logger.info(f"{skip_msg}'Moved from {data.removed_path}'")
+                        return
+                broadcast_applicables.append(
+                    (
+                        str(target_path),
+                        target_id,
+                        1,
+                        getattr(data, "size", 0) or 0,
+                    )
+                )
         elif any(target_path.is_relative_to(p) for p in self.MOVIE_ROOTS):
             if data.is_folder:
                 if not any(
@@ -361,14 +380,11 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                     self._delayed_dispatch_worker(str(task_path), key)
                 )
             return
-
         else:
             logger.info(f"{skip_msg}'Invalid directory hierarchy'")
             return
-        logger.info(f"Broadcast: {target_path=} {target_id=}")
-        await self._broadcast(
-            str(target_path), target_id, 1, getattr(data, "size", 0) or 0
-        )
+        for broadcast_target in broadcast_applicables:
+            await self._broadcast(*broadcast_target)
 
     async def _delayed_dispatch_worker(self, target_path: str, item_id: str) -> None:
         try:
