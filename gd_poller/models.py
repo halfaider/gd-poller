@@ -106,7 +106,7 @@ class AppSettings(GlobalConfig, _BaseSettings):
         self.pollers = tuple(self.pollers)
         global_filed_names = GlobalConfig.model_fields.keys()
         for idx, poller in enumerate(self.pollers):
-            if poller.name is None:
+            if not poller.name:
                 poller.name = f"poller-{idx}"
             for field_name in global_filed_names:
                 local_value = getattr(poller, field_name)
@@ -121,8 +121,10 @@ class AppSettings(GlobalConfig, _BaseSettings):
 @functools.total_ordering
 class ActivityData(BaseModel):
     activity: dict = Field(default_factory=dict)
-    # title, name, tymimeType
-    target: tuple[str | None, str | None, str | None] = (None, None, None)
+    # title, name(id), tymimeType
+    target: tuple[str, str, str] | None = None
+    # 바로가기일 경우 추가 정보
+    real_target: tuple[str, str, str] | None = None
     action: str = ""
     action_detail: str | tuple | list | None = None
     priority: float = 0.0  # timestamp()
@@ -131,13 +133,14 @@ class ActivityData(BaseModel):
     )
     timestamp_text: str = ""
     ancestor: str = ""
-    root: str | None = ""
-    path: str | None = ""
-    removed_path: str | None = ""
+    root: str = ""
+    path: str = ""
+    removed_path: str = ""
     link: str = ""
     is_folder: bool = False
+    is_shortcut: bool = False
     poller: str = ""
-    parent: tuple[str | None, str | None] = (None, None)
+    parent: tuple[str, str] | None = None
     size: int = 0
     children: list = Field(default_factory=list)
 

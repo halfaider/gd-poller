@@ -167,11 +167,28 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             if act.action not in self.ALLOWED_ACTIONS:
                 logger.warning(f"No applicable action: {act.action} in '{parent}'")
                 continue
-            if act.action == "create" and act.is_folder:
-                logger.warning(
-                    f"[GDS] skipped: name='{act.target[0]}' reason='Folder created'"
+            """
+            진행:
+              - 바로가기가 파일
+              - 바로가기가 '영화/최신' 내 폴더
+            """
+            if act.action == "create":
+                is_regular_folder = act.is_folder and not act.is_shortcut
+                is_shortcut_to_folder = False
+                if act.is_shortcut and act.real_target:
+                    target_type = act.real_target[-1]
+                    is_shortcut_to_folder = (
+                        "folder" in target_type or "shortcut" in target_type
+                    )
+                is_not_allowed_path = "/VIDEO/영화/최신" not in path
+                should_skip = is_regular_folder or (
+                    is_shortcut_to_folder and is_not_allowed_path
                 )
-                continue
+                if should_skip:
+                    logger.warning(
+                        f"[GDS] skipped: name='{act.target[0] if act.target else 'unknown'}' reason='Folder created'"
+                    )
+                    continue
             target = Path(path)
             suffix = target.suffix.lower()
             mode = "ADD"
@@ -200,7 +217,7 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
             for act_list in deletes.values():
                 for act in act_list:
                     logger.debug(
-                        f"[GDS] skipped: action='{act.action}' name='{act.target[0]}' reason='Multiple items'"
+                        f"[GDS] skipped: action='{act.action}' name='{act.target[0] if act.target else 'unknown'}' reason='Multiple items'"
                     )
         else:
             for act_list in deletes.values():
@@ -218,7 +235,9 @@ class GDSBroadcastDispatcher(BufferedDispatcher):
         for idx, target in enumerate(files + folders + info_files):
             mode, act = target
             if idx > 0:
-                logger.debug(f'[GDS] skipped: {act.target[0]} reason="Multiple items"')
+                logger.debug(
+                    f"[GDS] skipped: {act.target[0] if act.target else 'unknown'} reason='Multiple items'"
+                )
                 continue
             targets.append((act.path, mode))
         for target in targets:
@@ -303,9 +322,8 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         )
 
     async def dispatch(self, data: ActivityData) -> None:
-        if data.path is None:
+        if not data.target or not data.path:
             return
-        _, parent_id = data.parent
         _, target_item, _ = data.target
         target_id = (target_item or "").split("/")[-1]
         target_path = Path(self.get_mapping_path(data.path))
@@ -354,12 +372,17 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                 ):
                     logger.info(f"{skip_msg}'Extension'")
                     return
-                key = target_id
+                key = (
+                    data.real_target[1]
+                    if data.is_shortcut and data.real_target
+                    else target_id
+                )
                 task_path = target_path
             else:
-                if parent_id is None:
+                if not data.parent:
                     logger.info(f"{skip_msg}'No parent'")
                     return
+                _, parent_id = data.parent
                 if not self._check_extension(target_path):
                     logger.info(f"{skip_msg}'Extension'")
                     return
@@ -414,7 +437,7 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
 
     async def dispatch(self, data: ActivityData) -> None:
         scan_targets = []
-        if data.path is None:
+        if not data.path:
             return
         target_path = self.get_mapping_path(data.path)
         if Path(target_path).suffix.lower() in (".json", ".yaml", ".yml"):
@@ -459,7 +482,7 @@ class DiscordDispatcher(Dispatcher):
         self.discord = Discord(url, webhook_id, webhook_token)
 
     async def dispatch(self, data: ActivityData) -> None:
-        if data.path is None:
+        if not data.target or not data.path:
             return
         embed = {
             "color": self.COLORS.get(data.action, self.COLORS["default"]),
@@ -512,7 +535,7 @@ class RcloneDispatcher(Dispatcher):
         self.rclone = Rclone(url)
 
     async def dispatch(self, data: ActivityData) -> None:
-        if data.path is None:
+        if not data.path:
             return
         remote_path = Path(self.get_mapping_path(data.path))
         if data.action == "delete":
@@ -533,7 +556,7 @@ class PlexDispatcher(Dispatcher):
         self.plex = Plex(url, token)
 
     async def dispatch(self, data: ActivityData) -> None:
-        if data.path is None:
+        if not data.path:
             return
         targets = set()
         plex_path = Path(self.get_mapping_path(data.path))
@@ -668,7 +691,7 @@ class CommandDispatcher(Dispatcher):
         self.process_watchers = set()
 
     async def dispatch(self, data: ActivityData) -> None:
-        if data.path is None:
+        if not data.path:
             return
         if self.drop_during_process and bool(self.process_watchers):
             logger.warning(f"Already running: {self.process_watchers}")
@@ -713,7 +736,7 @@ class JellyfinDispatcher(BufferedDispatcher):
 
         updates = []
         for act in acts_by_path.values():
-            if act.path is None:
+            if not act.target or not act.path:
                 continue
             if act.is_folder:
                 logger.warning(f"Skipped: name='{act.target[0]}' reason='Folder'")
@@ -762,7 +785,7 @@ class StashDispatcher(BufferedDispatcher):
         deletes = []
         acts_by_path = {act.path: act for act in activities}
         for act in acts_by_path.values():
-            if act.path is None:
+            if not act.target or not act.path:
                 continue
             if act.is_folder:
                 logger.warning(f"Skipped: name='{act.target[0]}' reason='Folder'")

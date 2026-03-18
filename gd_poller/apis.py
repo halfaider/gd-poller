@@ -16,7 +16,7 @@ from googleapiclient.http import HttpRequest
 from googleapiclient import errors
 from requests.structures import CaseInsensitiveDict
 
-from .helpers.helpers import apply_cache
+from .helpers.helpers import apply_cache, get_int
 from .helpers.sessions import HelperSession, parse_response
 
 if TYPE_CHECKING:
@@ -263,7 +263,7 @@ class GoogleDrive(Api):
 
     async def get_full_path(
         self, item_id: str, ancestor_id: str = "", root: str = ""
-    ) -> tuple[str, tuple[str | None, str | None], str, str | int] | None:
+    ) -> tuple[str, tuple[str, str], str, int] | None:
         if not item_id:
             logger.error(f'ID를 확인하세요: "{item_id}"')
             return None
@@ -273,12 +273,12 @@ class GoogleDrive(Api):
         if not file:
             return None
         web_view = file.get("webViewLink") or ""
-        size = file.get("size") or 0
-        current_path: list[tuple[str | None, str | None]]
+        size = get_int(file.get("size"))
+        current_path: list[tuple[str, str]]
         if root and item_id == ancestor_id:
             current_path = [(root, ancestor_id)]
         else:
-            current_path = [(file.get("name"), file.get("id"))]
+            current_path = [(file.get("name") or "", file.get("id") or "")]
             break_counter = 100
             while (parents := file.get("parents")) and break_counter > 0:
                 async with self._semaphore:
@@ -291,7 +291,7 @@ class GoogleDrive(Api):
                     current_path.append((root, ancestor_id))
                     break
                 else:
-                    current_path.append((file.get("name"), file.get("id")))
+                    current_path.append((file.get("name") or "", file.get("id") or ""))
                 break_counter -= 1
         last_ancestor_id = current_path[-1][1]
         if last_ancestor_id and len(last_ancestor_id) < 20:
@@ -359,17 +359,11 @@ class GoogleDrive(Api):
         file_list = []
         try:
             try:
-                if is_shortcut:
-                    async with self._semaphore:
-                        shortcut_file = await asyncio.to_thread(
-                            self.get_file, folder_id, ttl_hash=self.get_ttl_hash()
-                        )
-                    if shortcut_file and (
-                        target_id := (shortcut_file.get("shortcutDetails") or {}).get(
-                            "targetId"
-                        )
-                    ):
-                        folder_id = target_id
+                if is_shortcut and (
+                    real_target := await self.get_real_target(folder_id)
+                ):
+                    if real_target[1]:
+                        folder_id = real_target[1]
             except Exception as e:
                 self.handle_error(e)
             # 캐시 없이 검색
@@ -379,7 +373,7 @@ class GoogleDrive(Api):
                     f"'{folder_id}' in parents and trashed = false",
                     page_size=limit,
                 )
-            if files is None:
+            if not files:
                 return file_list
             for file in files.get("files") or ():
                 file_mime = file.get("mimeType") or ""
@@ -397,6 +391,20 @@ class GoogleDrive(Api):
             self.handle_error(e)
         finally:
             return file_list
+
+    async def get_real_target(self, shortcut_id: str) -> tuple[str, str, str] | None:
+        async with self._semaphore:
+            shortcut_file = await asyncio.to_thread(
+                self.get_file, shortcut_id, ttl_hash=self.get_ttl_hash()
+            )
+            if shortcut_file:
+                if real_target := shortcut_file.get("shortcutDetails"):
+                    return (
+                        shortcut_file.get("name") or "",
+                        real_target.get("targetId") or "",
+                        real_target.get("targetMimeType") or "",
+                    )
+        logger.warning(f"Could not find the target for: {shortcut_id}")
 
     def handle_error(self, error: Exception) -> None:
         if isinstance(error, errors.HttpError):

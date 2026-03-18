@@ -328,15 +328,34 @@ class ActivityPoller(GoogleDrivePoller):
         data: ActivityData | None = None
         try:
             data = self.dispatch_queue.get_nowait()
+            if not data.target:
+                logger.warning(f"Skipped: target={data.target} reason=None")
+                return
+            target_id = None
+            try:
+                target_id = data.target[1]
+            except Exception:
+                logger.exception(f"{data=}")
+                return
             # action 필터링
             if data.action not in self.actions:
                 logger.debug(f"Skipped: target={data.target} reason={data.action}")
                 return
             # 폴더 타입 확인
-            if isinstance(data.target[2], str) and any(
-                folder_type in data.target[2] for folder_type in ("folder", "shortcut")
-            ):
+            if "folder" in data.target[2]:
                 data.is_folder = True
+            elif "shortcut" in data.target[2]:
+                data.is_shortcut = True
+                if data.target[1] and (
+                    real_target := await self.drive.get_real_target(data.target[1])
+                ):
+                    data.real_target = (
+                        real_target[0],
+                        real_target[1],
+                        real_target[2],
+                    )
+                if data.real_target and "folder" in data.real_target[-1]:
+                    data.is_folder = True
             # 폴더 무시 판단
             if self.ignore_folder and data.is_folder:
                 logger.debug(f"Skipped: target={data.target} reason=folder")
@@ -348,19 +367,14 @@ class ActivityPoller(GoogleDrivePoller):
                 )
                 return
             # 대상 경로
-            target_id = None
-            path_info = None
-            if data.target[1] is not None:
-                target_id = data.target[1].partition("/")[-1]
-                path_info = await self.drive.get_full_path(
-                    target_id, data.ancestor, data.root or ""
-                )
-            data.path = None
-            parent = (None, None)
+            path_info = await self.drive.get_full_path(
+                target_id, data.ancestor, data.root or ""
+            )
+            parent = None
             web_view = None
             if path_info:
                 data.path, parent, web_view, size = path_info
-                data.size = int(size)
+                data.size = size
                 if not parent[0]:
                     logger.warning(
                         f"Could not figure out its path: id={target_id} ancestor={data.ancestor} root={data.root} parent={parent[0]}"
@@ -368,20 +382,24 @@ class ActivityPoller(GoogleDrivePoller):
                     data.path = f"/unknown/{data.target[0]}"
             data.parent = parent
             # 폴더일 경우 자식 조회 (자식 파일 수는  100개로 제한)
-            if data.is_folder and isinstance(target_id, str):
-                data.children = await self.drive.get_children(target_id, 100, True)
+            if data.is_folder:
+                tmp = target_id
+                if data.is_shortcut and data.real_target:
+                    tmp = data.real_target[1]
+                data.children = await self.drive.get_children(tmp, 100)
             # url 링크
             if web_view:
                 data.link = web_view.strip()
             else:
-                url_folder_id = target_id if data.is_folder else parent[1]
+                url_folder_id = target_id
+                if not data.is_folder and parent:
+                    url_folder_id = parent[1]
                 data.link = f"https://drive.google.com/drive/folders/{url_folder_id}"
             # move, rename일 경우 소스 경로
-            data.removed_path = None
             if data.action == "move" and data.action_detail:
                 logger.debug(f"Moved from: {data.action_detail}")
                 try:
-                    removed_parent_id = data.action_detail[1].partition("/")[-1]
+                    removed_parent_id = data.action_detail[1]
                     # 다른 ancestor에서 이동된 경우 경로 매핑이 어려움
                     removed_path_info = await self.drive.get_full_path(
                         removed_parent_id, data.ancestor, data.root or ""
@@ -420,10 +438,10 @@ class ActivityPoller(GoogleDrivePoller):
             match bool(data.path), bool(data.removed_path):
                 case False, True:
                     data.path = data.removed_path
-                    data.removed_path = None
+                    data.removed_path = ""
                     data.action = "delete"
                     if data.action_detail:
-                        data.link = f'https://drive.google.com/drive/folders/{data.action_detail[1].partition("/")[-1]}'
+                        data.link = f"https://drive.google.com/drive/folders/{data.action_detail[1]}"
                         data.action_detail = (
                             f"Moved but can not access: {data.target[1]}"
                         )
@@ -454,7 +472,7 @@ class ActivityPoller(GoogleDrivePoller):
         logger.info(f"Polling task ends: {target}")
 
     async def _poll(self, ancestor: str) -> None:
-        root = self.targets[ancestor].get("root")
+        root = self.targets[ancestor].get("root") or ""
         ancestor_name = root or ancestor
         next_page_token = None
         timestamps = self.targets[ancestor]["timestamps"]
@@ -522,9 +540,7 @@ class ActivityPoller(GoogleDrivePoller):
         return ActivityData(
             activity=activity,
             timestamp=datetime.datetime.strptime(time_info, timestmap_format),
-            target=next(
-                map(self.get_target_info, activity["targets"]), (None, None, None)
-            ),
+            target=next(map(self.get_target_info, activity["targets"]), None),
             action=action,
             action_detail=action_detail,
         )
@@ -549,7 +565,7 @@ class ActivityPoller(GoogleDrivePoller):
             return activity["timeRange"]["endTime"]
         return "unknown"
 
-    def get_action_info(self, actionDetail: dict[str, Any]) -> tuple:
+    def get_action_info(self, actionDetail: dict[str, Any]) -> tuple[str, Any]:
         # Returns the type of action.
         action_detail: Any
         for key in actionDetail:
@@ -567,39 +583,37 @@ class ActivityPoller(GoogleDrivePoller):
                 case "delete" | "restore" | "dlpChange" | "reference":
                     action_detail = actionDetail[key]["type"]
                 case "permissionChange":
-                    action_detail = actionDetail[key]["addedPermissions"]
+                    action_detail = actionDetail[key].get("addedPermissions")
                 case "comment":
-                    actionDetail[key].pop("mentionedUsers")
+                    actionDetail[key].pop("mentionedUsers", None)
                     action_detail = actionDetail[key][
                         self.get_one_of(actionDetail[key])
                     ]["subtype"]
                 case "settingsChange":
-                    action_detail = actionDetail[key]["restrictionChanges"][0][
-                        "newRestriction"
-                    ]
+                    changes = actionDetail[key].get("restrictionChanges")
+                    action_detail = (
+                        changes[0].get("newRestriction") if changes else None
+                    )
                 case _:
                     action_detail = None
             return key, action_detail
         return "unknown", None
 
-    def get_target_info(
-        self, target: dict[str, Any]
-    ) -> tuple[str, str | None, str | None]:
+    def get_target_info(self, target: dict[str, Any]) -> tuple[str, str, str]:
         # Returns the type of a target and an associated title.
         if "driveItem" in target:
             title = target["driveItem"].get("title") or "unknown"
-            name = target["driveItem"].get("name")
-            mimeType = target["driveItem"].get("mimeType")
-            return title, name, mimeType
-        if "drive" in target:
+            name = target["driveItem"].get("name") or ""
+            mimeType = target["driveItem"].get("mimeType") or ""
+        elif "drive" in target:
             title = target["drive"].get("title") or "unknown"
-            name = target["drive"].get("name")
-            mimeType = target["drive"].get("mimeType")
-            return title, name, mimeType
-        if "fileComment" in target:
+            name = target["drive"].get("name") or ""
+            mimeType = target["drive"].get("mimeType") or ""
+        elif "fileComment" in target:
             parent = target["fileComment"].get("parent") or {}
             title = parent.get("title") or "unknown"
-            name = parent.get("name")
-            mimeType = parent.get("mimeType")
-            return title, name, mimeType
-        return self.get_one_of(target), None, None
+            name = parent.get("name") or ""
+            mimeType = parent.get("mimeType") or ""
+        else:
+            return self.get_one_of(target), "", ""
+        return title, name.partition("/")[-1], mimeType
