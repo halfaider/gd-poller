@@ -136,7 +136,7 @@ class KavitaDispatcher(BufferedDispatcher):
 
     async def scan_folder(self, path: str) -> int:
         result = self.kavita.api_library_scan_folder(path)
-        status_code = result.get("status_code") or 0
+        status_code = int(result.get("status_code") or 0)
         logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
         return status_code
 

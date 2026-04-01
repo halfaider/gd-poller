@@ -102,7 +102,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
                 )
             )
             if "user-agent" not in headers:
-                headers["user-agent"] = "gd-poller/0.7.6"
+                headers["user-agent"] = "gd-poller/0.7.7"
             self.get_sleep_enough(interval)
             self.last_executed_timestamp = time.time()
             """
@@ -759,7 +759,7 @@ class Jellyfin(Api):
         self,
         path: str | None = None,
         update_type: str | None = None,
-        updates: Sequence = (),
+        updates: Sequence[dict] = (),
     ) -> dict:
         if path and update_type:
             updates = ({"Path": path, "UpdateType": update_type},)
