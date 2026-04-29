@@ -1,17 +1,16 @@
 *
+
+# 허용 폴더
 !gd_poller/
-!gd_poller/helpers/
-!__init__.py
-!apis.py
-!cli.py
-!dispatchers.py
-!main.py
-!models.py
-!pollers.py
-!settings.sample.yaml
+
+# 화이트 리스트
+!gd_poller/**
 !.gitignore
-!.gitmodules
 !app.py
 !pyproject.toml
 !README.md
 !requirements.txt
+
+# 블랙 리스트
+**/__pycache__
+*.pyc
