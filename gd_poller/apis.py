@@ -218,7 +218,7 @@ class GoogleDrive(Api):
         self._credentials: credentials.Credentials = (
             credentials.Credentials.from_authorized_user_info(self.token, self.scopes)
         )
-        authorized_http = AuthorizedHttp(self.credentials, http=Http())
+        authorized_http = AuthorizedHttp(self.credentials, http=Http(timeout=60))
         self._api_drive: "DriveResource" = cast(Any, build)(
             "drive",
             "v3",
@@ -258,7 +258,7 @@ class GoogleDrive(Api):
 
     def build_google_request(self, http: Any, *args: Any, **kwargs: Any) -> HttpRequest:
         # https://googleapis.github.io/google-api-python-client/docs/thread_safety.html
-        new_http = AuthorizedHttp(self.credentials, http=Http())
+        new_http = AuthorizedHttp(self.credentials, http=Http(timeout=60))
         return HttpRequest(cast(Http, new_http), *args, **kwargs)
 
     async def get_full_path(

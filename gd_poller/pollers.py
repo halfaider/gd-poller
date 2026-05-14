@@ -492,7 +492,9 @@ class ActivityPoller(GoogleDrivePoller):
                 query = self.resource.query(body=body_data)
                 try:
                     async with self._semaphore:
-                        results = await asyncio.to_thread(query.execute)
+                        results = await asyncio.wait_for(
+                            asyncio.to_thread(query.execute), timeout=70
+                        )
                     # logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
                 except Exception as e:
                     self.drive.handle_error(e)
