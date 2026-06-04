@@ -389,8 +389,7 @@ class GoogleDrive(Api):
                 logger.debug(f"get_file(): {cast(Any, self.get_file).cache_info()}")
         except Exception as e:
             self.handle_error(e)
-        finally:
-            return file_list
+        return file_list
 
     async def get_real_target(self, shortcut_id: str) -> tuple[str, str, str] | None:
         async with self._semaphore:
