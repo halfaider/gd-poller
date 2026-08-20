@@ -20,7 +20,7 @@ patterns["season"].append(r"\b([0-9]{1,3})x[0-9]{2}\b")
 
 class FilenameParser(PTN):
 
-    KOR_PATTERNS = {
+    patterns_kor = {
         "title": (
             re.compile(
                 r"^(?P<title>.+?)(?=\.(?:\d{4}|S\d+|E\d+|\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])))",
@@ -35,40 +35,39 @@ class FilenameParser(PTN):
     def process_title(self) -> None:
         super().process_title()
 
-        title_val = self.parts.get("title")
+        title = self.parts.get("title") or ""
         title_span = self.part_slices.get("title")
-
-        if not title_val or not title_span:
-            return
+        if title_span is None:
+            title_span = (0, 0)
+        is_invalid_title = not title or title_span == (0, 0)
 
         anchor_match = next(
             (
                 match
-                for ptn in self.KOR_PATTERNS["title"]
+                for ptn in self.patterns_kor["title"]
                 if (match := ptn.search(self.torrent_name))
             ),
             None,
         )
-
         if anchor_match:
             anchor_start, anchor_end = anchor_match.span("title")
-            if anchor_end < title_span[1]:
+            if is_invalid_title or anchor_end <= title_span[1]:
                 if title_span in self.match_slices:
                     self.match_slices.remove(title_span)
-
-                raw_anchor_title = anchor_match.group("title")
-                cleaned_anchor = " ".join(
-                    raw_anchor_title.replace(".", " ").split()
-                ).strip()
+                anchor_title = anchor_match.group("title")
                 self._part(
-                    "title", (anchor_start, anchor_end), cleaned_anchor, overwrite=True
+                    "title",
+                    (anchor_start, anchor_end),
+                    anchor_title,
+                    overwrite=True,
                 )
                 title_span = (anchor_start, anchor_end)
+                is_invalid_title = False
 
         date_match = next(
             (
                 match
-                for ptn in self.KOR_PATTERNS["date"]
+                for ptn in self.patterns_kor["date"]
                 if (match := ptn.search(self.torrent_name))
             ),
             None,
@@ -96,14 +95,19 @@ class FilenameParser(PTN):
                 if date_start < title_span[1]:
                     if title_span in self.match_slices:
                         self.match_slices.remove(title_span)
-                    new_title = self.torrent_name[title_span[0] : date_start].strip(
-                        " ."
-                    )
+                    new_title = self.torrent_name[title_span[0] : date_start]
                     self._part(
                         "title", (title_span[0], date_start), new_title, overwrite=True
                     )
+                    title_span = (title_span[0], date_start)
+        
+        final_title = self.parts.get("title") or ""
+        final_title_span = self.part_slices.get("title") or (0, 0)
+        if final_title_span != (0, 0):
+            cleaned_title = " ".join(final_title.replace(".", " ").split()).strip()
+            self._part("title", final_title_span, cleaned_title, overwrite=True)
 
-            self.merge_match_slices()
+        self.merge_match_slices()
 
 
 def filename_parse(
@@ -113,5 +117,5 @@ def filename_parse(
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 0:
+    if len(sys.argv) > 1:
         print(filename_parse(sys.argv[1]))

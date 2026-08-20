@@ -1,8 +1,12 @@
 *
+
 !__init__.py
 !.gitignore
 !helpers.py
 !loggers.py
 !models.py
-!sessions.py
 !parsers.py
+!sessions.py
+
+**/__pycache__
+*.pyc
