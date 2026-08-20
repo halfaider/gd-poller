@@ -1,6 +1,5 @@
 import re
 import time
-import queue
 import pathlib
 import logging
 import asyncio
@@ -22,7 +21,7 @@ LOCAL_TIMEZONE = (
 
 class GoogleDrivePoller(ABC):
 
-    _dispatch_queue: queue.PriorityQueue
+    _dispatch_queue: asyncio.PriorityQueue
     _tasks: list[asyncio.Task]
     _stop_event = asyncio.Event()
 
@@ -120,7 +119,7 @@ class GoogleDrivePoller(ABC):
         self._name = name if isinstance(name, str) else self.__class__.__name__
 
     @property
-    def polling_interval(self) -> int:
+    def polling_interval(self) -> int | float:
         return self._polling_interval
 
     @polling_interval.setter
@@ -132,7 +131,7 @@ class GoogleDrivePoller(ABC):
         return self._polling_delay
 
     @polling_delay.setter
-    def polling_delay(self, polling_delay: int | float) -> None:
+    def polling_delay(self, polling_delay: int) -> None:
         self._polling_delay = get_int(polling_delay, 60)
 
     @property
@@ -140,7 +139,7 @@ class GoogleDrivePoller(ABC):
         return self._page_size
 
     @page_size.setter
-    def page_size(self, page_size: int | float) -> None:
+    def page_size(self, page_size: int) -> None:
         self._page_size = get_int(page_size, 50)
 
     @property
@@ -151,7 +150,7 @@ class GoogleDrivePoller(ABC):
     def actions(self, actions: Sequence[str] | None) -> None:
         self._actions = (
             tuple(actions)
-            if actions
+            if isinstance(actions, Sequence)
             else (
                 "create",
                 "edit",
@@ -174,11 +173,10 @@ class GoogleDrivePoller(ABC):
 
     @patterns.setter
     def patterns(self, patterns: Sequence[str] | None) -> None:
-        self._patterns = (
-            tuple(re.compile(pattern, re.I) for pattern in patterns)
-            if patterns
-            else (re.compile(".*", re.I),)
-        )
+        if not patterns or tuple(patterns) == (".*",):
+            self._patterns = ()
+        else:
+            self._patterns = tuple(re.compile(pattern, re.I) for pattern in patterns)
 
     @property
     def ignore_patterns(self) -> tuple[re.Pattern, ...]:
@@ -213,7 +211,7 @@ class GoogleDrivePoller(ABC):
         return self._stop_event
 
     @property
-    def dispatch_queue(self) -> queue.PriorityQueue[ActivityData]:
+    def dispatch_queue(self) -> asyncio.PriorityQueue[ActivityData]:
         return self._dispatch_queue
 
     @property
@@ -233,7 +231,7 @@ class GoogleDrivePoller(ABC):
         self._task_check_interval = get_int(task_check_interval, -1)
 
     async def start(self) -> None:
-        self._dispatch_queue = queue.PriorityQueue()
+        self._dispatch_queue = asyncio.PriorityQueue()
         self.tasks = []
         if self.stop_event.is_set():
             self.stop_event.clear()
@@ -276,10 +274,12 @@ class GoogleDrivePoller(ABC):
                     task.cancel()
                 except Exception as e:
                     logger.exception(e)
-        self._dispatch_queue = queue.PriorityQueue()
+        self._dispatch_queue = asyncio.PriorityQueue()
         self._tasks = []
 
     def check_patterns(self, path: str, patterns: Iterable[re.Pattern]) -> bool:
+        if not patterns:
+            return True
         for pattern in patterns:
             if not pattern:
                 continue
@@ -312,150 +312,148 @@ class ActivityPoller(GoogleDrivePoller):
     async def dispatch(self) -> None:
         logger.info(f"Dispatching task starts: {self.name}")
         while not self.stop_event.is_set():
-            await self._dispatch()
-            # 큐에서 각 아이템을 꺼낸 후 sleep
-            for _ in range(max(self.dispatch_interval * 10, 10)):
-                await asyncio.sleep(0.1)
-                if self.stop_event.is_set():
-                    break
+            try:
+                data = await asyncio.wait_for(self.dispatch_queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+            try:
+                await self._dispatch(data)
+            except Exception as e:
+                logger.exception(f"{data=}")
+            finally:
+                self.dispatch_queue.task_done()
+            if self.dispatch_interval > 0:
+                await asyncio.sleep(self.dispatch_interval)
         logger.info(f"Dispatching task ends: {self.name}")
 
-    async def _dispatch(self) -> None:
-        data: ActivityData | None = None
+    async def _dispatch(self, data: ActivityData) -> None:
+        if not data.target:
+            logger.warning(f"Skipped: target={data.target} reason=None")
+            return
+        target_id = None
         try:
-            data = self.dispatch_queue.get_nowait()
-            if not data.target:
-                logger.warning(f"Skipped: target={data.target} reason=None")
-                return
-            target_id = None
-            try:
-                target_id = data.target[1]
-            except Exception:
-                logger.exception(f"{data=}")
-                return
-            # action 필터링
-            if data.action not in self.actions:
-                logger.debug(f"Skipped: target={data.target} reason={data.action}")
-                return
-            # 폴더 타입 확인
-            if "folder" in data.target[2]:
+            target_id = data.target[1]
+        except Exception:
+            logger.exception(f"{data=}")
+            return
+        # action 필터링
+        if data.action not in self.actions:
+            logger.debug(f"Skipped: target={data.target} reason={data.action}")
+            return
+        # 폴더 타입 확인
+        if "folder" in data.target[2]:
+            data.is_folder = True
+        elif "shortcut" in data.target[2]:
+            data.is_shortcut = True
+            if data.target[1] and (
+                real_target := await self.drive.get_real_target(data.target[1])
+            ):
+                data.real_target = (
+                    real_target[0],
+                    real_target[1],
+                    real_target[2],
+                )
+            if data.real_target and "folder" in data.real_target[-1]:
                 data.is_folder = True
-            elif "shortcut" in data.target[2]:
-                data.is_shortcut = True
-                if data.target[1] and (
-                    real_target := await self.drive.get_real_target(data.target[1])
-                ):
-                    data.real_target = (
-                        real_target[0],
-                        real_target[1],
-                        real_target[2],
+        # 폴더 무시 판단
+        if self.ignore_folder and data.is_folder:
+            logger.debug(f"Skipped: target={data.target} reason=folder")
+            return
+        # 대상이 영구히 삭제돼서 조회 불가능 할 경우
+        if data.action == "delete" and data.action_detail != "TRASH":
+            logger.debug(
+                f'Skipped: target={data.target} reason="deleted permanently"'
+            )
+            return
+        # 대상 경로
+        path_info = await self.drive.get_full_path(
+            target_id, data.ancestor, data.root or ""
+        )
+        parent = None
+        web_view = None
+        if path_info:
+            data.path, parent, web_view, size = path_info
+            data.size = size
+            if not parent[0]:
+                logger.warning(
+                    f"Could not figure out its path: id={target_id} ancestor={data.ancestor} root={data.root} parent={parent[0]}"
+                )
+                data.path = f"/unknown/{data.target[0]}"
+        data.parent = parent
+        # 폴더일 경우 자식 조회 (자식 파일 수는  100개로 제한)
+        if data.is_folder:
+            tmp = target_id
+            if data.is_shortcut and data.real_target:
+                tmp = data.real_target[1]
+            data.children = await self.drive.get_children(tmp, 100)
+        # url 링크
+        if web_view:
+            data.link = web_view.strip()
+        else:
+            url_folder_id = target_id
+            if not data.is_folder and parent:
+                url_folder_id = parent[1]
+            data.link = f"https://drive.google.com/drive/folders/{url_folder_id}"
+        # move, rename일 경우 소스 경로
+        if data.action == "move" and data.action_detail:
+            logger.debug(f"Moved from: {data.action_detail}")
+            try:
+                removed_parent_id = data.action_detail[1]
+                # 다른 ancestor에서 이동된 경우 경로 매핑이 어려움
+                removed_path_info = await self.drive.get_full_path(
+                    removed_parent_id, data.ancestor, data.root or ""
+                )
+                if removed_path_info:
+                    removed_path, _, _, _ = removed_path_info
+                    data.removed_path = str(
+                        pathlib.Path(removed_path, data.target[0] or "")
                     )
-                if data.real_target and "folder" in data.real_target[-1]:
-                    data.is_folder = True
-            # 폴더 무시 판단
-            if self.ignore_folder and data.is_folder:
-                logger.debug(f"Skipped: target={data.target} reason=folder")
-                return
-            # 대상이 영구히 삭제돼서 조회 불가능 할 경우
-            if data.action == "delete" and data.action_detail != "TRASH":
-                logger.debug(
-                    f'Skipped: target={data.target} reason="deleted permanently"'
+            except Exception as e:
+                logger.exception(e)
+        elif data.action == "rename" and isinstance(data.action_detail, str):
+            logger.debug(f"Renamed from: {data.action_detail}")
+            if data.path:
+                data.removed_path = str(
+                    pathlib.Path(data.path).with_name(data.action_detail)
+                )
+        # 기타 정보
+        data.timestamp_text = data.timestamp.astimezone(LOCAL_TIMEZONE).strftime(
+            "%Y-%m-%dT%H:%M:%S%z"
+        )
+        data.poller = self.name
+        # 패턴 체크
+        for attr, name in [("path", "target"), ("removed_path", "removed_path")]:
+            path_value = getattr(data, attr)
+            if not path_value:
+                continue
+            msg = f'Skipped: {name}="{path_value}" reason='
+            if not self.check_patterns(path_value, self.patterns):
+                logger.debug(msg + '"Not match with patterns"')
+                setattr(data, attr, None)
+            elif self.check_patterns(path_value, self.ignore_patterns):
+                logger.debug(msg + '"Match with ignore patterns"')
+                setattr(data, attr, None)
+        # move된 경로를 접근할 수 없을 경우
+        match bool(data.path), bool(data.removed_path):
+            case False, True:
+                data.path = data.removed_path
+                data.removed_path = ""
+                data.action = "delete"
+                if data.action_detail:
+                    data.link = f"https://drive.google.com/drive/folders/{data.action_detail[1]}"
+                    data.action_detail = (
+                        f"Moved but can not access: {data.target[1]}"
+                    )
+            case False, False:
+                logger.info(
+                    f'Skipped: target={data.target} reason="No applicable path"'
                 )
                 return
-            # 대상 경로
-            path_info = await self.drive.get_full_path(
-                target_id, data.ancestor, data.root or ""
-            )
-            parent = None
-            web_view = None
-            if path_info:
-                data.path, parent, web_view, size = path_info
-                data.size = size
-                if not parent[0]:
-                    logger.warning(
-                        f"Could not figure out its path: id={target_id} ancestor={data.ancestor} root={data.root} parent={parent[0]}"
-                    )
-                    data.path = f"/unknown/{data.target[0]}"
-            data.parent = parent
-            # 폴더일 경우 자식 조회 (자식 파일 수는  100개로 제한)
-            if data.is_folder:
-                tmp = target_id
-                if data.is_shortcut and data.real_target:
-                    tmp = data.real_target[1]
-                data.children = await self.drive.get_children(tmp, 100)
-            # url 링크
-            if web_view:
-                data.link = web_view.strip()
-            else:
-                url_folder_id = target_id
-                if not data.is_folder and parent:
-                    url_folder_id = parent[1]
-                data.link = f"https://drive.google.com/drive/folders/{url_folder_id}"
-            # move, rename일 경우 소스 경로
-            if data.action == "move" and data.action_detail:
-                logger.debug(f"Moved from: {data.action_detail}")
-                try:
-                    removed_parent_id = data.action_detail[1]
-                    # 다른 ancestor에서 이동된 경우 경로 매핑이 어려움
-                    removed_path_info = await self.drive.get_full_path(
-                        removed_parent_id, data.ancestor, data.root or ""
-                    )
-                    if removed_path_info:
-                        removed_path, _, _, _ = removed_path_info
-                        data.removed_path = str(
-                            pathlib.Path(removed_path, data.target[0] or "")
-                        )
-                except Exception as e:
-                    logger.exception(e)
-            elif data.action == "rename" and isinstance(data.action_detail, str):
-                logger.debug(f"Renamed from: {data.action_detail}")
-                if data.path:
-                    data.removed_path = str(
-                        pathlib.Path(data.path).with_name(data.action_detail)
-                    )
-            # 기타 정보
-            data.timestamp_text = data.timestamp.astimezone(LOCAL_TIMEZONE).strftime(
-                "%Y-%m-%dT%H:%M:%S%z"
-            )
-            data.poller = self.name
-            # 패턴 체크
-            for attr, name in [("path", "target"), ("removed_path", "removed_path")]:
-                path_value = getattr(data, attr)
-                if not path_value:
-                    continue
-                msg = f'Skipped: {name}="{path_value}" reason='
-                if not self.check_patterns(path_value, self.patterns):
-                    logger.debug(msg + '"Not match with patterns"')
-                    setattr(data, attr, None)
-                elif self.check_patterns(path_value, self.ignore_patterns):
-                    logger.debug(msg + '"Match with ignore patterns"')
-                    setattr(data, attr, None)
-            # move된 경로를 접근할 수 없을 경우
-            match bool(data.path), bool(data.removed_path):
-                case False, True:
-                    data.path = data.removed_path
-                    data.removed_path = ""
-                    data.action = "delete"
-                    if data.action_detail:
-                        data.link = f"https://drive.google.com/drive/folders/{data.action_detail[1]}"
-                        data.action_detail = (
-                            f"Moved but can not access: {data.target[1]}"
-                        )
-                case False, False:
-                    logger.info(
-                        f'Skipped: target={data.target} reason="No applicable path"'
-                    )
-                    return
-            for dispatcher in self.dispatcher_list:
-                # activity 발생 순서대로, dispatcher 배치 순서대로
-                await dispatcher.dispatch(data)
-        except queue.Empty:
-            pass
-        except:
-            logger.exception(f"{data=}")
-        finally:
-            if data:
-                self.dispatch_queue.task_done()
+        for dispatcher in self.dispatcher_list:
+            # activity 발생 순서대로, dispatcher 배치 순서대로
+            await dispatcher.dispatch(data)
 
     async def poll(self, target: str) -> None:
         logger.info(f"Polling task starts: {target}")
@@ -521,7 +519,7 @@ class ActivityPoller(GoogleDrivePoller):
                     logger.info(
                         f"{data.action}, {data.target} at {data.timestamp.astimezone(LOCAL_TIMEZONE)} ({ancestor_name})"
                     )
-                    self.dispatch_queue.put(data)
+                    await self.dispatch_queue.put(data)
                 if not next_page_token:
                     break
             except:
@@ -532,13 +530,10 @@ class ActivityPoller(GoogleDrivePoller):
         # logger.debug(f'{activity["actions"]=}')
         # logger.debug(f'{activity["targets"]=}')
         time_info = self.get_time_info(activity)
-        timestmap_format = (
-            "%Y-%m-%dT%H:%M:%S.%f%z" if "." in time_info else "%Y-%m-%dT%H:%M:%S%z"
-        )
         action, action_detail = self.get_action_info(activity["primaryActionDetail"])
         return ActivityData(
             activity=activity,
-            timestamp=datetime.datetime.strptime(time_info, timestmap_format),
+            timestamp=datetime.datetime.fromisoformat(time_info.replace("Z", "+00:00")),
             target=next(map(self.get_target_info, activity["targets"]), None),
             action=action,
             action_detail=action_detail,
@@ -552,9 +547,7 @@ class ActivityPoller(GoogleDrivePoller):
         # Returns the name of a set property in an object, or else "unknown".
         if len(obj) > 1:
             logger.error(f"MULTIPLE VALUES: {obj}")
-        for key in obj:
-            return key
-        return "unknown"
+        return next(iter(obj), "unknown")
 
     def get_time_info(self, activity: dict[str, Any]) -> str:
         # Returns a time associated with an activity.
@@ -566,37 +559,37 @@ class ActivityPoller(GoogleDrivePoller):
 
     def get_action_info(self, actionDetail: dict[str, Any]) -> tuple[str, Any]:
         # Returns the type of action.
-        action_detail: Any
-        for key in actionDetail:
-            match key:
-                case "create":
-                    action_detail = self.get_one_of(actionDetail[key])
-                case "move" if actionDetail[key].get("removedParents"):
-                    removed_parents = actionDetail[key]["removedParents"]
-                    if removed_parents:
-                        action_detail = self.get_target_info(removed_parents[0])
-                    else:
-                        action_detail = None
-                case "rename" if actionDetail[key].get("oldTitle"):
-                    action_detail = actionDetail[key]["oldTitle"]
-                case "delete" | "restore" | "dlpChange" | "reference":
-                    action_detail = actionDetail[key]["type"]
-                case "permissionChange":
-                    action_detail = actionDetail[key].get("addedPermissions")
-                case "comment":
-                    actionDetail[key].pop("mentionedUsers", None)
-                    action_detail = actionDetail[key][
-                        self.get_one_of(actionDetail[key])
-                    ]["subtype"]
-                case "settingsChange":
-                    changes = actionDetail[key].get("restrictionChanges")
-                    action_detail = (
-                        changes[0].get("newRestriction") if changes else None
-                    )
-                case _:
-                    action_detail = None
-            return key, action_detail
-        return "unknown", None
+        if not actionDetail:
+            return "unknown", None
+        key = next(iter(actionDetail))
+        val = actionDetail[key]
+        match key:
+            case "create":
+                action_detail = self.get_one_of(val)
+            case "move" if val.get("removedParents"):
+                removed_parents = val["removedParents"]
+                action_detail = (
+                    self.get_target_info(removed_parents[0])
+                    if removed_parents
+                    else None
+                )
+            case "rename" if val.get("oldTitle"):
+                action_detail = val["oldTitle"]
+            case "delete" | "restore" | "dlpChange" | "reference":
+                action_detail = val.get("type")
+            case "permissionChange":
+                action_detail = val.get("addedPermissions")
+            case "comment":
+                val.pop("mentionedUsers", None)
+                action_detail = val[self.get_one_of(val)]["subtype"]
+            case "settingsChange":
+                changes = val.get("restrictionChanges")
+                action_detail = (
+                    changes[0].get("newRestriction") if changes else None
+                )
+            case _:
+                action_detail = None
+        return key, action_detail
 
     def get_target_info(self, target: dict[str, Any]) -> tuple[str, str, str]:
         # Returns the type of a target and an associated title.
