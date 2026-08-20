@@ -6,15 +6,12 @@ import logging
 import asyncio
 import datetime
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, Sequence, TYPE_CHECKING, cast
+from typing import Any, Iterable, Sequence, cast
 
 from . import dispatchers
 from .apis import GoogleDrive
 from .models import ActivityData
 from .helpers.helpers import check_tasks, get_bool, get_int
-
-if TYPE_CHECKING:
-    from googleapiclient._apis.driveactivity.v2 import QueryDriveActivityRequest  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +307,6 @@ class ActivityPoller(GoogleDrivePoller):
 
     def __init__(self, *args: Any, **kwds: Any):
         super().__init__(*args, **kwds)
-        self.resource = self.drive.api_activity.activity()
         self._semaphore = asyncio.Semaphore(5)
 
     async def dispatch(self) -> None:
@@ -482,23 +478,24 @@ class ActivityPoller(GoogleDrivePoller):
                 end_time = datetime.datetime.now(LOCAL_TIMEZONE) - datetime.timedelta(
                     seconds=self.polling_delay
                 )
-                body_data: "QueryDriveActivityRequest" = {
+                body_data: dict[str, Any] = {
                     "pageSize": self.page_size,
                     "ancestorName": f"items/{ancestor}",
                     "filter": f"time > {int(start_time.timestamp() * 1000)} AND time <= {int(end_time.timestamp() * 1000)}",
                 }
                 if isinstance(next_page_token, str):
                     body_data["pageToken"] = next_page_token
-                query = self.resource.query(body=body_data)
                 try:
                     async with self._semaphore:
                         results = await asyncio.wait_for(
-                            asyncio.to_thread(query.execute), timeout=70
+                            self.drive.query_activity(body_data), timeout=70
                         )
                     # logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
                 except Exception as e:
                     self.drive.handle_error(e)
                     logger.error(f"Polling failed: {ancestor=}")
+                    break
+                if not results:
                     break
                 next_page_token = results.get("nextPageToken")
                 activities = results.get("activities")

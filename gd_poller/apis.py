@@ -1,27 +1,18 @@
 import time
-import html
 import pathlib
 import logging
 import inspect
 import asyncio
 import functools
 import urllib.parse
-from typing import Any, Optional, Callable, Sequence, TYPE_CHECKING, cast
+from typing import Any, Optional, Callable, Sequence, cast
 
-from httplib2 import Http
-from google_auth_httplib2 import AuthorizedHttp
+import httpx
 from google.oauth2 import credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import HttpRequest
-from googleapiclient import errors
-from requests.structures import CaseInsensitiveDict
+from google.auth.transport.requests import Request
 
-from .helpers.helpers import apply_cache, get_int
-from .helpers.sessions import HelperSession, parse_response
-
-if TYPE_CHECKING:
-    from googleapiclient._apis.drive.v3 import DriveResource  # type: ignore[import-not-found]
-    from googleapiclient._apis.driveactivity.v2 import DriveActivityResource  # type: ignore[import-not-found]
+from .helpers.helpers import get_int
+from .http import parse_response, get_default_headers, async_apply_cache
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +41,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
                 }
             }
 
-    params, data, headers는 requests.session 모듈의 request(parmas=params, data=data, headers=headers)로 전달 됨.
+    params, data, headers는 httpx.AsyncClient의 request로 전달 됨.
 
     api에 추가적인 데이터가 필요하지 않은 경우 리턴하지 않음
 
@@ -81,7 +72,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
 
     def decorator(class_method: Callable) -> Callable:
         @functools.wraps(class_method)
-        def wrapper(self: Api, *args: Any, **kwds: Any) -> dict:
+        async def wrapper(self: Api, *args: Any, **kwds: Any) -> dict:
             api: dict = class_method(self, *args, **kwds) or {}
             self.adjust_api(api)
             bound = inspect.signature(class_method).bind(self, *args, **kwds)
@@ -89,7 +80,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
             params: dict | None = api.get("params")
             data: dict | None = api.get("data")
             json_: dict | None = api.get("json")
-            headers = CaseInsensitiveDict(api.get("headers"))
+            headers = dict(api.get("headers") or {})
             auth: tuple | None = api.get("auth")
             url: str = urllib.parse.urlunparse(
                 (
@@ -101,9 +92,10 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
                     self.url_parts.fragment,
                 )
             )
-            if "user-agent" not in headers:
+            has_ua = any(k.lower() == "user-agent" for k in headers)
+            if not has_ua:
                 headers["user-agent"] = "gd-poller/0.7.7"
-            self.get_sleep_enough(interval)
+            await self.get_sleep_enough(interval)
             self.last_executed_timestamp = time.time()
             """
             {
@@ -114,17 +106,16 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
                 'url': 'https://...',
             }
             """
-            return parse_response(
-                self.session.request(
-                    method,
-                    url,
-                    params=params,
-                    data=data,
-                    json=json_,
-                    auth=auth,
-                    headers=headers,
-                )
+            response = await self.client.request(
+                method,
+                url,
+                params=params,
+                data=data,
+                json=json_,
+                auth=auth,
+                headers=headers,
             )
+            return parse_response(response)
 
         return wrapper
 
@@ -144,12 +135,16 @@ class Api:
         cache_enable: bool = False,
         cache_maxsize: int = 64,
         cache_ttl: int = 600,
+        headers: dict | None = None,
     ) -> None:
         self.url = url.strip().strip("/")
         self._cache_enable = cache_enable
         self._cache_ttl = cache_ttl
         self._cache_maxsize = cache_maxsize
-        self._session = HelperSession()
+        client_headers = dict(get_default_headers())
+        if headers:
+            client_headers.update(headers)
+        self._client = httpx.AsyncClient(timeout=60.0, headers=client_headers)
         self._semaphore = asyncio.Semaphore(5)
 
     @property
@@ -178,8 +173,8 @@ class Api:
         return self._cache_maxsize
 
     @property
-    def session(self) -> HelperSession:
-        return self._session
+    def client(self) -> httpx.AsyncClient:
+        return self._client
 
     @property
     def last_executed_timestamp(self) -> float:
@@ -191,13 +186,16 @@ class Api:
 
     def adjust_api(self, api_data: dict) -> None: ...
 
-    def get_sleep_enough(self, interval: float) -> None:
+    async def get_sleep_enough(self, interval: float) -> None:
         sleep_time = interval - (time.time() - self.last_executed_timestamp)
         if sleep_time > 0:
             logger.debug(
                 f"Sleep for {sleep_time} seconds to complete a {interval}-second interval..."
             )
-            time.sleep(sleep_time)
+            await asyncio.sleep(sleep_time)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
 
 class GoogleDrive(Api):
@@ -209,32 +207,23 @@ class GoogleDrive(Api):
         cache_enable: bool = False,
         cache_maxsize: int = 64,
         cache_ttl: int = 600,
+        headers: dict | None = None,
     ):
         super().__init__(
-            cache_enable=cache_enable, cache_maxsize=cache_maxsize, cache_ttl=cache_ttl
+            cache_enable=cache_enable,
+            cache_maxsize=cache_maxsize,
+            cache_ttl=cache_ttl,
+            headers=headers,
         )
         self._token = token
         self._scopes = scopes
         self._credentials: credentials.Credentials = (
             credentials.Credentials.from_authorized_user_info(self.token, self.scopes)
         )
-        authorized_http = AuthorizedHttp(self.credentials, http=Http(timeout=60))
-        self._api_drive: "DriveResource" = cast(Any, build)(
-            "drive",
-            "v3",
-            requestBuilder=self.build_google_request,
-            http=authorized_http,
-        )
-        self._api_activity: "DriveActivityResource" = cast(Any, build)(
-            "driveactivity",
-            "v2",
-            requestBuilder=self.build_google_request,
-            http=authorized_http,
-        )
         if self.cache_enable:
             # 메소드에 직접 데코레이터를 사용하는 대신 __init__ 에서 캐시를 씌우면 각 객체별로 독립적인 캐시를 갖게 됨
-            self.get_file = apply_cache(self._get_file, self.cache_maxsize)
-            self.get_files = apply_cache(self._get_files, self.cache_maxsize)
+            self.get_file = async_apply_cache(self._get_file, self.cache_maxsize)
+            self.get_files = async_apply_cache(self._get_files, self.cache_maxsize)
         else:
             self.get_file = self._get_file
             self.get_files = self._get_files
@@ -251,18 +240,28 @@ class GoogleDrive(Api):
     def credentials(self) -> credentials.Credentials:
         return self._credentials
 
-    @property
-    def api_drive(self) -> "DriveResource":
-        return self._api_drive
+    async def get_auth_headers(self) -> dict[str, str]:
+        if not self._credentials.valid:
+            await asyncio.to_thread(self._credentials.refresh, Request())
+        return {"Authorization": f"Bearer {self._credentials.token}"}
 
-    @property
-    def api_activity(self) -> "DriveActivityResource":
-        return self._api_activity
-
-    def build_google_request(self, http: Any, *args: Any, **kwargs: Any) -> HttpRequest:
-        # https://googleapis.github.io/google-api-python-client/docs/thread_safety.html
-        new_http = AuthorizedHttp(self.credentials, http=Http(timeout=60))
-        return HttpRequest(cast(Http, new_http), *args, **kwargs)
+    async def query_activity(self, body_data: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            auth_headers = await self.get_auth_headers()
+            res = await self.client.post(
+                "https://driveactivity.googleapis.com/v2/activity:query",
+                json=body_data,
+                headers=auth_headers,
+            )
+            if not res.is_success:
+                logger.error(
+                    f"Google Activity query: status_code={res.status_code} body={res.text}"
+                )
+                return None
+            return res.json()
+        except Exception as e:
+            self.handle_error(e)
+            return None
 
     async def get_full_path(
         self, item_id: str, ancestor_id: str = "", root: str = ""
@@ -272,7 +271,7 @@ class GoogleDrive(Api):
             return None
         async with self._semaphore:
             # do not use cache
-            file = await asyncio.to_thread(self._get_file, item_id)
+            file = await self._get_file(item_id)
         if not file:
             return None
         web_view = file.get("webViewLink") or ""
@@ -285,8 +284,8 @@ class GoogleDrive(Api):
             break_counter = 100
             while (parents := file.get("parents")) and break_counter > 0:
                 async with self._semaphore:
-                    file = await asyncio.to_thread(
-                        self.get_file, parents[0], ttl_hash=self.get_ttl_hash()
+                    file = await self.get_file(
+                        parents[0], ttl_hash=self.get_ttl_hash()
                     )
                 if not file:
                     return None
@@ -305,27 +304,28 @@ class GoogleDrive(Api):
             logger.debug(f"get_file(): {cast(Any, self.get_file).cache_info()}")
         return str(full_path), parent, web_view, size
 
-    def _get_file(
+    async def _get_file(
         self,
         item_id: str,
         fields: str = "id, name, parents, mimeType, webViewLink, size, shortcutDetails",
     ) -> dict[str, Any] | None:
         try:
-            result = (
-                self.api_drive.files()
-                .get(
-                    fileId=item_id,
-                    fields=fields,
-                    supportsAllDrives=True,
-                )
-                .execute()
+            auth_headers = await self.get_auth_headers()
+            res = await self.client.get(
+                f"https://www.googleapis.com/drive/v3/files/{item_id}",
+                params={"fields": fields, "supportsAllDrives": "true"},
+                headers=auth_headers,
             )
-            # logger.debug(f'file={result}')
-            return cast(dict, result)
+            if not res.is_success:
+                logger.error(
+                    f"Google Drive get_file: item_id={item_id} status_code={res.status_code} body={res.text}"
+                )
+                return None
+            return res.json()
         except Exception as e:
             self.handle_error(e)
 
-    def _get_files(
+    async def _get_files(
         self,
         query: str,
         order_by: str = "folder,modifiedTime desc,name",
@@ -333,20 +333,28 @@ class GoogleDrive(Api):
         page_size: int = 100,
     ) -> dict[str, Any] | None:
         try:
-            result = (
-                self.api_drive.files()
-                .list(
-                    q=query,
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True,
-                    orderBy=order_by,
-                    pageToken=page_token if page_token else "",
-                    pageSize=page_size,
-                    fields="nextPageToken, files(id, name, mimeType, size)",
-                )
-                .execute()
+            auth_headers = await self.get_auth_headers()
+            params: dict[str, Any] = {
+                "q": query,
+                "supportsAllDrives": "true",
+                "includeItemsFromAllDrives": "true",
+                "orderBy": order_by,
+                "pageSize": page_size,
+                "fields": "nextPageToken, files(id, name, mimeType, size)",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            res = await self.client.get(
+                "https://www.googleapis.com/drive/v3/files",
+                params=params,
+                headers=auth_headers,
             )
-            return cast(dict, result)
+            if not res.is_success:
+                logger.error(
+                    f"Google Drive get_files: status_code={res.status_code} body={res.text}"
+                )
+                return None
+            return res.json()
         except Exception as e:
             self.handle_error(e)
 
@@ -369,8 +377,7 @@ class GoogleDrive(Api):
                 self.handle_error(e)
             # 캐시 없이 검색
             async with self._semaphore:
-                files = await asyncio.to_thread(
-                    self._get_files,
+                files = await self._get_files(
                     f"'{folder_id}' in parents and trashed = false",
                     page_size=limit,
                 )
@@ -394,8 +401,8 @@ class GoogleDrive(Api):
 
     async def get_real_target(self, shortcut_id: str) -> tuple[str, str, str] | None:
         async with self._semaphore:
-            shortcut_file = await asyncio.to_thread(
-                self.get_file, shortcut_id, ttl_hash=self.get_ttl_hash()
+            shortcut_file = await self.get_file(
+                shortcut_id, ttl_hash=self.get_ttl_hash()
             )
             if shortcut_file:
                 if real_target := shortcut_file.get("shortcutDetails"):
@@ -407,12 +414,7 @@ class GoogleDrive(Api):
         logger.warning(f"Could not find the target for: {shortcut_id}")
 
     def handle_error(self, error: Exception) -> None:
-        if isinstance(error, errors.HttpError):
-            logger.error(
-                f'Google: error=HttpError status_code={error.resp.status} reason="{html.escape(error.reason.strip())}" uri="{error.uri}"'
-            )
-        else:
-            logger.exception(error)
+        logger.exception(error)
 
     def get_ttl_hash(self) -> int | float:
         if self.cache_enable:
@@ -495,27 +497,27 @@ class Rclone(Api):
             data["fs"] = fs
         return data
 
-    def get_metadata_cache(self) -> tuple[int, int]:
-        result: dict = (self.api_vfs_stats(self.vfs).get("json") or {}).get(
+    async def get_metadata_cache(self) -> tuple[int, int]:
+        res = await self.api_vfs_stats(self.vfs)
+        result: dict = (res.get("json") or {}).get(
             "metadataCache"
         ) or {}
         if not result:
             logger.error(f"Rclone: No metadata cache statistics, assumed 0...")
         return result.get("dirs") or 0, result.get("files") or 0
 
-    def is_dir(self, remote_path: str) -> bool:
-        item: dict = (
-            self.api_operations_stat(remote_path, fs=self.vfs).get("json") or {}
-        ).get("item") or {}
+    async def is_dir(self, remote_path: str) -> bool:
+        res = await self.api_operations_stat(remote_path, fs=self.vfs)
+        item: dict = (res.get("json") or {}).get("item") or {}
         return (item.get("IsDir") or "").lower() == "true"
 
-    def refresh(self, remote_path: str, recursive: bool = False) -> None:
+    async def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)
         for parent in target.parents:
             if parent == parent.parent:
-                result = self.api_vfs_refresh().get("json") or {}
+                result = (await self.api_vfs_refresh()).get("json") or {}
             else:
-                result = self.api_vfs_refresh(parent.as_posix()).get("json") or {}
+                result = (await self.api_vfs_refresh(parent.as_posix())).get("json") or {}
             logger.debug(f"Rclone: {result}")
             if (
                 (result.get("result") or {}).get(parent.as_posix()) or ""
@@ -526,12 +528,13 @@ class Rclone(Api):
         else:
             logger.error(f"It has hit the root path: {str(target)}")
             return
-        result = self.api_vfs_refresh(target.as_posix(), recursive).get("json")
+        result = (await self.api_vfs_refresh(target.as_posix(), recursive)).get("json")
         logger.info(f"Rclone: {result}")
 
-    def forget(self, remote_path: str, is_directory: bool = False) -> None:
+    async def forget(self, remote_path: str, is_directory: bool = False) -> None:
+        res = await self.api_vfs_forget(remote_path, is_directory)
         logger.info(
-            f'Rclone: {self.api_vfs_forget(remote_path, is_directory).get("json")}'
+            f'Rclone: {res.get("json")}'
         )
 
 
@@ -567,9 +570,9 @@ class Plex(Api):
     @http_api("/library/metadata/{metadata_id}/refresh")
     def api_metadata_refresh(self, metadata_id: int) -> dict: ...
 
-    def get_sections(self, refresh: bool = False) -> dict | None:
+    async def get_sections(self, refresh: bool = False) -> dict | None:
         if self._sections is None or refresh:
-            result = self.api_sections()
+            result = await self.api_sections()
             self._sections = result.get("json")
             if not self._sections:
                 logger.error(
@@ -577,10 +580,10 @@ class Plex(Api):
                 )
         return self._sections
 
-    def get_section_by_path(self, path: str) -> int:
+    async def get_section_by_path(self, path: str) -> int:
         path_ = pathlib.Path(path)
         for retry in (False, True):
-            sections = self.get_sections(refresh=retry)
+            sections = await self.get_sections(refresh=retry)
             if not sections:
                 continue
             for directory in sections.get("MediaContainer", {}).get("Directory", []):
@@ -592,10 +595,10 @@ class Plex(Api):
                 continue
         return -1
 
-    def scan(self, path: str, force: bool = False, is_directory: bool = True) -> None:
+    async def scan(self, path: str, force: bool = False, is_directory: bool = True) -> None:
         scan_target = path if is_directory else str(pathlib.Path(path).parent)
-        section = self.get_section_by_path(scan_target) or -1
-        result = self.api_refresh(section, scan_target, force)
+        section = (await self.get_section_by_path(scan_target)) or -1
+        result = await self.api_refresh(section, scan_target, force)
         logger.info(
             f"Plex: {scan_target=} {section=} status_code='{result.get('status_code')}'"
         )
@@ -652,8 +655,8 @@ class Kavita(Api):
     @http_api("/api/Series/{series_id}", method="GET")
     def api_series(self, series_id: int) -> dict: ...
 
-    def set_token(self) -> None:
-        result = self.api_plugin_authenticate()
+    async def set_token(self) -> None:
+        result = await self.api_plugin_authenticate()
         if not 199 < (result.get("status_code") or 0) < 300:
             logger.error(f"kavita: {result}")
         auth = result.get("json") or {}
@@ -721,8 +724,8 @@ class Flaskfarm(Api):
     def api_plex_mate_scan_do_scan(self, target: str, mode: str) -> dict:
         return {"data": {"target": target, "mode": mode, "apikey": self.apikey}}
 
-    def gds_tool_fp_broadcast(self, gds_path: str, scan_mode: str) -> None:
-        self.api_gds_tool_fp_broadcast(gds_path, scan_mode)
+    async def gds_tool_fp_broadcast(self, gds_path: str, scan_mode: str) -> None:
+        await self.api_gds_tool_fp_broadcast(gds_path, scan_mode)
         logger.info(f'gds_tool: mode={scan_mode} target="{gds_path}"')
 
 
@@ -793,7 +796,7 @@ class Stash(Api):
     def api_gql(self, payload: dict) -> dict:
         return {"json": payload}
 
-    def metadata_scan(
+    async def metadata_scan(
         self,
         paths: Sequence[str],
         rescan: bool = False,
@@ -805,7 +808,7 @@ class Stash(Api):
         sprite: bool = False,
         thumbnail: bool = False,
     ) -> dict:
-        return self.api_gql(
+        return await self.api_gql(
             {
                 "operationName": "MetadataScan",
                 "variables": {
@@ -825,8 +828,8 @@ class Stash(Api):
             }
         )
 
-    def metadata_clean(self, paths: Sequence[str], dry_run: bool = True) -> dict:
-        return self.api_gql(
+    async def metadata_clean(self, paths: Sequence[str], dry_run: bool = True) -> dict:
+        return await self.api_gql(
             {
                 "operationName": "MetadataClean",
                 "variables": {

@@ -22,6 +22,14 @@ class LoggingConfig(BaseModel):
     redacted_substitute: str = "<REDACTED>"
 
 
+class HttpConfig(BaseModel):
+    headers: dict[str, str] = Field(
+        default_factory=lambda: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        }
+    )
+
+
 class GoogleDriveTokenConfig(BaseModel):
     client_id: str
     client_secret: str
@@ -100,6 +108,7 @@ class AppSettings(GlobalConfig, _BaseSettings):
     google_drive: GoogleDriveConfig = Field(default_factory=GoogleDriveConfig)
     pollers: tuple[PollerConfig, ...] = ()
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    http: HttpConfig = Field(default_factory=HttpConfig)
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)

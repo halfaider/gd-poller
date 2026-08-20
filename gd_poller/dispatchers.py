@@ -123,7 +123,7 @@ class KavitaDispatcher(BufferedDispatcher):
             kavita_path = self.get_mapping_path(path)
             for _ in range(5):
                 if (status := await self.scan_folder(kavita_path)) == 401:
-                    self.kavita.set_token()
+                    await self.kavita.set_token()
                 else:
                     if not 300 > status > 199:
                         logger.warning(
@@ -135,7 +135,7 @@ class KavitaDispatcher(BufferedDispatcher):
                 break
 
     async def scan_folder(self, path: str) -> int:
-        result = self.kavita.api_library_scan_folder(path)
+        result = await self.kavita.api_library_scan_folder(path)
         status_code = int(result.get("status_code") or 0)
         logger.info(f'Kavita: scan_target="{path}" status_code={status_code}')
         return status_code
@@ -254,7 +254,7 @@ class GDSToolDispatcher(FlaskfarmDispatcher, GDSBroadcastDispatcher):
         super().__init__(url, apikey, **kwds)
 
     async def broadcast(self, path: str, mode: str) -> None:
-        self.flaskfarm.gds_tool_fp_broadcast(path, mode)
+        await self.flaskfarm.gds_tool_fp_broadcast(path, mode)
 
 
 class FlaskfarmaiderDispatcher(Dispatcher):
@@ -267,7 +267,7 @@ class FlaskfarmaiderDispatcher(Dispatcher):
 class GDSFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher, GDSBroadcastDispatcher):
 
     async def broadcast(self, path: str, mode: str) -> None:
-        self.bot.api_broadcast_gds(path, mode)
+        await self.bot.api_broadcast_gds(path, mode)
 
 
 class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
@@ -313,8 +313,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
         self, path: str, item_id: str, file_count: int = 0, total_size: int = 0
     ) -> None:
         logger.info(f"[Downloader] Broadcast: {path=} {item_id=}")
-        await asyncio.to_thread(
-            self.bot.api_broadcast_downloader,
+        await self.bot.api_broadcast_downloader(
             path,
             item_id,
             file_count=file_count,
@@ -452,9 +451,8 @@ class PlexmateDispatcher(FlaskfarmDispatcher):
             mode = "REMOVE_FOLDER" if data.is_folder else "REMOVE_FILE"
             scan_targets.append((self.get_mapping_path(removed), mode))
         for st in scan_targets:
-            logger.info(
-                f"plex_mate: {self.flaskfarm.api_plex_mate_scan_do_scan(st[0], mode=st[1])}"
-            )
+            res = await self.flaskfarm.api_plex_mate_scan_do_scan(st[0], mode=st[1])
+            logger.info(f"plex_mate: {res}")
 
 
 class DiscordDispatcher(Dispatcher):
@@ -517,7 +515,7 @@ class DiscordDispatcher(Dispatcher):
         embed["fields"].append(
             {"name": "Occurred at", "value": self.get_truncated(data.timestamp_text)}
         )
-        result = self.discord.api_webhook(embeds=[embed])
+        result = await self.discord.api_webhook(embeds=[embed])
         logger.info(
             f"Discord: target=\"{data.target[0]}\" status_code={result.get('status_code')}"
         )
@@ -539,14 +537,14 @@ class RcloneDispatcher(Dispatcher):
             return
         remote_path = Path(self.get_mapping_path(data.path))
         if data.action == "delete":
-            self.rclone.forget(str(remote_path), data.is_folder)
+            await self.rclone.forget(str(remote_path), data.is_folder)
             return
         if removed_path := data.removed_path:
             removed_remote_path = Path(self.get_mapping_path(removed_path))
-            self.rclone.forget(str(removed_remote_path), data.is_folder)
+            await self.rclone.forget(str(removed_remote_path), data.is_folder)
         target_path = str(remote_path) if data.is_folder else str(remote_path.parent)
-        self.rclone.forget(target_path, True)
-        self.rclone.refresh(target_path)
+        await self.rclone.forget(target_path, True)
+        await self.rclone.refresh(target_path)
 
 
 class PlexDispatcher(Dispatcher):
@@ -569,7 +567,7 @@ class PlexDispatcher(Dispatcher):
                 else str(removed_plex_path.parent)
             )
         for p_ in targets:
-            self.plex.scan(p_, is_directory=True)
+            await self.plex.scan(p_, is_directory=True)
 
 
 class MultiServerDispatcher(BufferedDispatcher):
@@ -765,7 +763,7 @@ class JellyfinDispatcher(BufferedDispatcher):
                 }
             )
         if updates:
-            result = self.jellyfin.api_library_media_updated(updates=updates)
+            result = await self.jellyfin.api_library_media_updated(updates=updates)
             status_code = result.get("status_code")
             logger.info(f"Jellyfin: updates={updates} {status_code=}")
         else:
@@ -795,12 +793,12 @@ class StashDispatcher(BufferedDispatcher):
             else:
                 updates.append(self.get_mapping_path(act.path))
         if deletes:
-            result = self.stash.metadata_clean(
+            result = await self.stash.metadata_clean(
                 paths=(self.get_mapping_path(parent),), dry_run=False
             )
             status_code = result.get("status_code")
             logger.info(f"Stash: deleted_parent={parent} {status_code=}")
         if updates:
-            result = self.stash.metadata_scan(paths=(self.get_mapping_path(parent),))
+            result = await self.stash.metadata_scan(paths=(self.get_mapping_path(parent),))
             status_code = result.get("status_code")
             logger.info(f"Stash: updated_parent='{parent}' {status_code=}")
