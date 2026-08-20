@@ -113,6 +113,8 @@ class KavitaDispatcher(BufferedDispatcher):
 
     async def buffered_dispatch(self, item: tuple[str, list[ActivityData]]) -> None:
         parent, activities = item
+        if not activities:
+            return
         logger.debug(f"Kavita: {parent}")
         is_folders, paths = zip(
             *((act.is_folder, act.path) for act in activities), strict=True
@@ -343,7 +345,7 @@ class DownloaderFlaskfarmaiderDispatcher(FlaskfarmaiderDispatcher):
                             f"[Downloader] skipped: '{child[1]}' reason='Extension'"
                         )
                         continue
-                    child_path = target_path.with_name(child[1])
+                    child_path = target_path / child[1]
                     broadcast_applicables.append(
                         (str(child_path), child[0], 1, child[3])
                     )
@@ -471,19 +473,20 @@ class DiscordDispatcher(Dispatcher):
         url: str = "https://discord.com/api",
         webhook_id: str = "",
         webhook_token: str = "",
-        colors: dict = {},
+        colors: dict | None = None,
         **kwds: Any,
     ) -> None:
         super().__init__(**kwds)
+        self.colors = dict(self.COLORS)
         if colors:
-            self.COLORS.update(colors)
+            self.colors.update(colors)
         self.discord = Discord(url, webhook_id, webhook_token)
 
     async def dispatch(self, data: ActivityData) -> None:
         if not data.target or not data.path:
             return
         embed = {
-            "color": self.COLORS.get(data.action, self.COLORS["default"]),
+            "color": self.colors.get(data.action, self.colors["default"]),
             "author": {
                 "name": data.poller,
             },
@@ -659,14 +662,14 @@ class PlexRcloneDispatcher(MultiServerDispatcher):
     def __init__(
         self,
         url: str = "",
-        mappings: list = [],
+        mappings: list | None = None,
         plex_url: str = "",
         plex_token: str = "",
-        plex_mappings: list = [],
+        plex_mappings: list | None = None,
         **kwds: Any,
     ) -> None:
-        rclones = [{"url": url, "mappings": mappings}]
-        plexes = [{"url": plex_url, "token": plex_token, "mappings": plex_mappings}]
+        rclones = [{"url": url, "mappings": mappings or []}]
+        plexes = [{"url": plex_url, "token": plex_token, "mappings": plex_mappings or []}]
         super().__init__(rclones=rclones, plexes=plexes, **kwds)
         logger.warning("DEPRECATED: Use MultiServerDispatcher instead.")
 

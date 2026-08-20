@@ -333,6 +333,7 @@ class GoogleDrive(Api):
         self,
         item_id: str,
         fields: str = "id, name, parents, mimeType, webViewLink, size, shortcutDetails",
+        **kwds: Any,
     ) -> dict[str, Any] | None:
         try:
             auth_headers = await self.get_auth_headers()
@@ -356,6 +357,7 @@ class GoogleDrive(Api):
         order_by: str = "folder,modifiedTime desc,name",
         page_token: str | None = None,
         page_size: int = 100,
+        **kwds: Any,
     ) -> dict[str, Any] | None:
         try:
             auth_headers = await self.get_auth_headers()
@@ -534,7 +536,7 @@ class Rclone(Api):
     async def is_dir(self, remote_path: str) -> bool:
         res = await self.api_operations_stat(remote_path, fs=self.vfs)
         item: dict = (res.get("json") or {}).get("item") or {}
-        return (item.get("IsDir") or "").lower() == "true"
+        return get_bool(item.get("IsDir"))
 
     async def refresh(self, remote_path: str, recursive: bool = False) -> None:
         target = pathlib.Path(remote_path)

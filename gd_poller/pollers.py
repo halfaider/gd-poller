@@ -21,10 +21,6 @@ LOCAL_TIMEZONE = (
 
 class GoogleDrivePoller(ABC):
 
-    _dispatch_queue: asyncio.PriorityQueue
-    _tasks: list[asyncio.Task]
-    _stop_event = asyncio.Event()
-
     def __init__(
         self,
         drive: GoogleDrive,
@@ -41,6 +37,9 @@ class GoogleDrivePoller(ABC):
         dispatch_interval: int = 1,
         polling_delay: int = 60,
     ):
+        self._stop_event = asyncio.Event()
+        self._dispatch_queue = asyncio.PriorityQueue()
+        self._tasks: list[asyncio.Task] = []
         self.drive = drive
         self.dispatcher_list = dispatcher_list
         self.name = name
@@ -455,12 +454,13 @@ class ActivityPoller(GoogleDrivePoller):
         ancestor_name = root or ancestor
         next_page_token = None
         timestamps = self.targets[ancestor]["timestamps"]
+        start_time = timestamps[0]
+        end_time = datetime.datetime.now(LOCAL_TIMEZONE) - datetime.timedelta(
+            seconds=self.polling_delay
+        )
+        has_activity = False
         while not self.stop_event.is_set():
             try:
-                start_time = timestamps[0]
-                end_time = datetime.datetime.now(LOCAL_TIMEZONE) - datetime.timedelta(
-                    seconds=self.polling_delay
-                )
                 body_data: dict[str, Any] = {
                     "pageSize": self.page_size,
                     "ancestorName": f"items/{ancestor}",
@@ -483,18 +483,20 @@ class ActivityPoller(GoogleDrivePoller):
                 next_page_token = results.get("nextPageToken")
                 activities = results.get("activities")
                 if not activities:
-                    current_timestamp = time.time()
-                    if (
-                        self.task_check_interval > 0
-                        and current_timestamp - timestamps[1] > self.task_check_interval
-                    ):
-                        logger.debug(
-                            f'No activity in "{ancestor_name}" since {start_time.astimezone(LOCAL_TIMEZONE)}'
-                        )
-                        timestamps[1] = current_timestamp
+                    if not has_activity:
+                        current_timestamp = time.time()
+                        if (
+                            self.task_check_interval > 0
+                            and current_timestamp - timestamps[1] > self.task_check_interval
+                        ):
+                            logger.debug(
+                                f'No activity in "{ancestor_name}" since {start_time.astimezone(LOCAL_TIMEZONE)}'
+                            )
+                            timestamps[1] = current_timestamp
                     break
                 # logger.debug(f'Polling: {str(start_time)} ~ {str(end_time)} ({ancestor_name}) {results=}')
                 # activity가 1 개라도 있으면 start_time를 갱신
+                has_activity = True
                 timestamps[0] = end_time
                 for activity in activities:
                     data = self.get_activity(cast(dict, activity))
