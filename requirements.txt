@@ -1,7 +1,4 @@
-google-auth
 pydantic
 pydantic_settings
 pyyaml
-requests
 httpx
-parse-torrent-title

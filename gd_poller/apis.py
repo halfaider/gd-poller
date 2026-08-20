@@ -3,14 +3,14 @@ import pathlib
 import logging
 import inspect
 import asyncio
+import datetime
 import functools
 import urllib.parse
-from typing import Any, Optional, Callable, Sequence, cast
+from typing import Any, Callable, Sequence, cast
 
 import httpx
-from google.oauth2 import credentials
-from google.auth.transport.requests import Request
 
+from . import __version__
 from .helpers.helpers import get_int
 from .http import parse_response, get_default_headers, async_apply_cache
 
@@ -94,7 +94,7 @@ def http_api(path: str, method: str = "GET", interval: float = 0.0) -> Callable:
             )
             has_ua = any(k.lower() == "user-agent" for k in headers)
             if not has_ua:
-                headers["user-agent"] = "gd-poller/0.7.7"
+                headers["user-agent"] = f"gd-poller/{__version__}"
             await self.get_sleep_enough(interval)
             self.last_executed_timestamp = time.time()
             """
@@ -203,7 +203,7 @@ class GoogleDrive(Api):
     def __init__(
         self,
         token: dict,
-        scopes: tuple,
+        scopes: tuple = (),
         cache_enable: bool = False,
         cache_maxsize: int = 64,
         cache_ttl: int = 600,
@@ -217,9 +217,12 @@ class GoogleDrive(Api):
         )
         self._token = token
         self._scopes = scopes
-        self._credentials: credentials.Credentials = (
-            credentials.Credentials.from_authorized_user_info(self.token, self.scopes)
-        )
+        self._client_id = token.get("client_id") or ""
+        self._client_secret = token.get("client_secret") or ""
+        self._refresh_token = token.get("refresh_token") or ""
+        self._access_token = token.get("token") or ""
+        self._expiry: datetime.datetime | None = None
+        self._refresh_lock = asyncio.Lock()
         if self.cache_enable:
             # 메소드에 직접 데코레이터를 사용하는 대신 __init__ 에서 캐시를 씌우면 각 객체별로 독립적인 캐시를 갖게 됨
             self.get_file = async_apply_cache(self._get_file, self.cache_maxsize)
@@ -236,14 +239,36 @@ class GoogleDrive(Api):
     def scopes(self) -> tuple:
         return self._scopes
 
-    @property
-    def credentials(self) -> credentials.Credentials:
-        return self._credentials
+    async def get_access_token(self) -> str:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if self._access_token and self._expiry and now < self._expiry:
+            return self._access_token
+        async with self._refresh_lock:
+            if self._access_token and self._expiry and now < self._expiry:
+                return self._access_token
+            res = await self.client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": self._client_id,
+                    "client_secret": self._client_secret,
+                    "refresh_token": self._refresh_token,
+                    "grant_type": "refresh_token",
+                },
+            )
+            if not res.is_success:
+                logger.error(
+                    f"Google OAuth2 Token Refresh Failed: status_code={res.status_code} body={res.text}"
+                )
+                raise Exception(f"Google OAuth2 Refresh Failed: {res.status_code}")
+            data = res.json()
+            self._access_token = data.get("access_token") or ""
+            expires_in = int(data.get("expires_in") or 3600)
+            self._expiry = now + datetime.timedelta(seconds=max(expires_in - 60, 60))
+            return self._access_token
 
     async def get_auth_headers(self) -> dict[str, str]:
-        if not self._credentials.valid:
-            await asyncio.to_thread(self._credentials.refresh, Request())
-        return {"Authorization": f"Bearer {self._credentials.token}"}
+        token = await self.get_access_token()
+        return {"Authorization": f"Bearer {token}"}
 
     async def query_activity(self, body_data: dict[str, Any]) -> dict[str, Any] | None:
         try:
@@ -555,7 +580,7 @@ class Plex(Api):
 
     @http_api("/library/sections/{section}/refresh")
     def api_refresh(
-        self, section: int, path: Optional[str] = None, force: bool = False
+        self, section: int, path: str | None = None, force: bool = False
     ) -> dict:
         params = {}
         if force:
