@@ -233,8 +233,11 @@ class GoogleDrive(Api):
         )
         if self.cache_enable:
             # 메소드에 직접 데코레이터를 사용하는 대신 __init__ 에서 캐시를 씌우면 각 객체별로 독립적인 캐시를 갖게 됨
-            self.get_file = apply_cache(self.get_file, self.cache_maxsize)
-            self.get_files = apply_cache(self.get_files, self.cache_maxsize)
+            self.get_file = apply_cache(self._get_file, self.cache_maxsize)
+            self.get_files = apply_cache(self._get_files, self.cache_maxsize)
+        else:
+            self.get_file = self._get_file
+            self.get_files = self._get_files
 
     @property
     def token(self) -> dict[str, Any]:
@@ -269,7 +272,7 @@ class GoogleDrive(Api):
             return None
         async with self._semaphore:
             # do not use cache
-            file = await asyncio.to_thread(self.get_file, item_id, ttl_hash=time.time())
+            file = await asyncio.to_thread(self._get_file, item_id)
         if not file:
             return None
         web_view = file.get("webViewLink") or ""
@@ -302,11 +305,10 @@ class GoogleDrive(Api):
             logger.debug(f"get_file(): {cast(Any, self.get_file).cache_info()}")
         return str(full_path), parent, web_view, size
 
-    def get_file(
+    def _get_file(
         self,
         item_id: str,
         fields: str = "id, name, parents, mimeType, webViewLink, size, shortcutDetails",
-        ttl_hash: int | float = 3600,
     ) -> dict[str, Any] | None:
         try:
             result = (
@@ -323,13 +325,12 @@ class GoogleDrive(Api):
         except Exception as e:
             self.handle_error(e)
 
-    def get_files(
+    def _get_files(
         self,
         query: str,
         order_by: str = "folder,modifiedTime desc,name",
         page_token: str | None = None,
         page_size: int = 100,
-        ttl_hash: int | float = 3600,
     ) -> dict[str, Any] | None:
         try:
             result = (
@@ -369,7 +370,7 @@ class GoogleDrive(Api):
             # 캐시 없이 검색
             async with self._semaphore:
                 files = await asyncio.to_thread(
-                    self.get_files,
+                    self._get_files,
                     f"'{folder_id}' in parents and trashed = false",
                     page_size=limit,
                 )

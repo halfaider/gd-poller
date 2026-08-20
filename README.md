@@ -44,10 +44,10 @@ gd-poller
         apis.py
         cli.py
         ...
-        settings.sample.yaml
     .gitignore
     ...
     requirements.txt
+    settings.sample.yaml
 ```
 
 이와 같은 폴더 구조에서 설정 파일은 아래 순서대로 로딩되며 나중에 읽은 파일이 이전 값을 덮어씁니다. 결과적으로 `${PWD}/settings.yaml` 파일이 모든 설정값을 최종적으로 확정하게 됩니다.
