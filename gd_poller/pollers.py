@@ -148,24 +148,7 @@ class GoogleDrivePoller(ABC):
 
     @actions.setter
     def actions(self, actions: Sequence[str] | None) -> None:
-        self._actions = (
-            tuple(actions)
-            if isinstance(actions, Sequence)
-            else (
-                "create",
-                "edit",
-                "move",
-                "rename",
-                "delete",
-                "restore",
-                "permissionChange",
-                "comment",
-                "dlpChange",
-                "reference",
-                "settingsChange",
-                "appliedLabelChange",
-            )
-        )
+        self._actions = tuple(actions) if actions else ()
 
     @property
     def patterns(self) -> tuple[re.Pattern, ...]:
@@ -339,7 +322,7 @@ class ActivityPoller(GoogleDrivePoller):
             logger.exception(f"{data=}")
             return
         # action 필터링
-        if data.action not in self.actions:
+        if self.actions and data.action not in self.actions:
             logger.debug(f"Skipped: target={data.target} reason={data.action}")
             return
         # 폴더 타입 확인
