@@ -38,7 +38,7 @@ def main(*args: Any) -> None:
         ),
         default=None,
     )
-    parsed_args = parser.parse_args(sys.argv[1:])
+    parsed_args = parser.parse_args(args)
     app_main(parsed_args.settings_yaml)
 
 

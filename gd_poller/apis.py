@@ -11,7 +11,7 @@ from typing import Any, Callable, Sequence, cast
 import httpx
 
 from . import __version__
-from .helpers.helpers import get_int
+from .helpers.helpers import get_bool, get_int
 from .http import parse_response, get_default_headers, async_apply_cache
 
 logger = logging.getLogger(__name__)
