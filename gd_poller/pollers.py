@@ -415,7 +415,9 @@ class ActivityPoller(GoogleDrivePoller):
             if not self.check_patterns(path_value, self.patterns):
                 logger.debug(msg + '"Not match with patterns"')
                 setattr(data, attr, None)
-            elif self.check_patterns(path_value, self.ignore_patterns):
+            elif self.ignore_patterns and self.check_patterns(
+                path_value, self.ignore_patterns
+            ):
                 logger.debug(msg + '"Match with ignore patterns"')
                 setattr(data, attr, None)
         # move된 경로를 접근할 수 없을 경우
