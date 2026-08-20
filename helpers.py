@@ -105,7 +105,7 @@ async def check_tasks(tasks: list[asyncio.Task], interval: int = 60) -> None:
             if task.done():
                 logger.debug(f'The task is done: "{name}"')
                 done_tasks.append(task)
-                if exception := task.exception():
+                if not task.cancelled() and (exception := task.exception()):
                     logger.error(f"{name}: {exception}")
             else:
                 if check:
