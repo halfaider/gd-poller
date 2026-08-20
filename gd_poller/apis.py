@@ -542,6 +542,7 @@ class Plex(Api):
     def __init__(self, url: str, token: str) -> None:
         super().__init__(url)
         self.token = token.strip()
+        self._sections: dict | None = None
 
     def adjust_api(self, api_data: dict) -> None:
         if "params" not in api_data:
@@ -566,21 +567,29 @@ class Plex(Api):
     @http_api("/library/metadata/{metadata_id}/refresh")
     def api_metadata_refresh(self, metadata_id: int) -> dict: ...
 
+    def get_sections(self, refresh: bool = False) -> dict | None:
+        if self._sections is None or refresh:
+            result = self.api_sections()
+            self._sections = result.get("json")
+            if not self._sections:
+                logger.error(
+                    f'No section information, status_code={result.get("status_code")}'
+                )
+        return self._sections
+
     def get_section_by_path(self, path: str) -> int:
         path_ = pathlib.Path(path)
-        result = self.api_sections()
-        sections = result.get("json")
-        if not sections:
-            logger.error(
-                f'No section information, status_code={result.get("status_code")}'
-            )
-            return -1
-        for directory in sections["MediaContainer"]["Directory"]:
-            for location in directory["Location"]:
-                if path_.is_relative_to(location["path"]) or pathlib.Path(
-                    location["path"]
-                ).is_relative_to(path_):
-                    return int(directory["key"])
+        for retry in (False, True):
+            sections = self.get_sections(refresh=retry)
+            if not sections:
+                continue
+            for directory in sections.get("MediaContainer", {}).get("Directory", []):
+                for location in directory.get("Location", []):
+                    loc_path = pathlib.Path(location.get("path", ""))
+                    if path_.is_relative_to(loc_path) or loc_path.is_relative_to(path_):
+                        return int(directory["key"])
+            if not retry:
+                continue
         return -1
 
     def scan(self, path: str, force: bool = False, is_directory: bool = True) -> None:
