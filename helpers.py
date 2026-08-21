@@ -65,11 +65,38 @@ def get_last_dir(path_: str, is_dir: bool = False) -> str:
     return path_ if is_dir else str(Path(path_).parent)
 
 
+def _make_hashable(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return tuple(sorted((k, _make_hashable(v)) for k, v in obj.items()))
+    if isinstance(obj, (list, set, tuple)):
+        return tuple(_make_hashable(v) for v in obj)
+    return obj
+
+
 def apply_cache(func: Callable, maxsize: int = 64) -> Callable:
+    if asyncio.iscoroutinefunction(func):
+        cache: dict[Any, Any] = {}
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, ttl_hash: int = 3600, **kwds: Any):
+            key = (_make_hashable(args), _make_hashable(kwds), ttl_hash)
+            if key in cache:
+                cached_val = cache[key]
+                return copy.deepcopy(cached_val) if isinstance(cached_val, (dict, list)) else cached_val
+            result = await func(*args, **kwds)
+            if len(cache) >= maxsize:
+                cache.pop(next(iter(cache)))
+            if result:
+                cache[key] = copy.deepcopy(result) if isinstance(result, (dict, list)) else result
+            return result
+
+        return async_wrapper
+
     @functools.lru_cache(maxsize=maxsize)
     def wrapper(*args: Any, ttl_hash: int = 3600, **kwds: Any):
         del ttl_hash
         return func(*args, **kwds)
+
     return wrapper
 
 
