@@ -31,6 +31,7 @@ google_drive:
 #  redacted_substitute: "<REDACTED>"
 
 #http:
+#  timeout: 60.0
 #  headers:
 #    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
 
@@ -122,3 +123,23 @@ pollers:
 #        timeout: 60
 #        mappings:
 #          - '/MY_DRIVE:X:/downloads'
+
+#  - name: '범용 웹훅 전송용'
+#    targets:
+#      - '폴더_ID#/mnt/gds/GDRIVE/VIDEO'
+#    dispatchers:
+#      - class: WebhookDispatcher
+#        url: 'https://api.example.com/webhook'
+#        method: 'POST'
+#        headers:
+#          Authorization: 'Bearer my-secret-token'
+#        payload:
+#          action: '{action}'
+#          target: '{target[0]}'
+#          path: '{path}'
+#          is_folder: '{is_folder}'
+#          timestamp: '{timestamp_text}'
+#        mappings:
+#          - '/mnt/gds/GDRIVE:/host/media'
+
+

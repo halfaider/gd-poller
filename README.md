@@ -205,6 +205,7 @@ pollers:
     dispatchers:
       - class: DummyDispatcher
       - class: DiscordDispatcher
+      - class: WebhookDispatcher
       - class: MultiServerDispatcher
       - class: CommandDispatcher
 ```
@@ -425,6 +426,49 @@ Stash 앱에 스캔 요청을 보냅니다.
 |apikey|필요|서버의 API Key|
 |mappings||`tragets`에서 지정한 경로를 변환|
 
+#### WebhookDispatcher
+
+임의의 웹 서버 또는 웹훅 수신 서비스로 HTTP 요청을 전송합니다.
+
+```yaml
+- class: WebhookDispatcher
+  url: "https://api.example.com/webhook"
+  method: "POST"
+  headers:
+    Authorization: "Bearer my-secret-token"
+  payload:
+    action: "{action}"
+    target: "{target[0]}"
+    path: "{path}"
+    is_folder: "{is_folder}"
+    timestamp: "{timestamp_text}"
+  timeout: 10.0
+  mappings:
+    - "/mnt/gds/GDRIVE:/host/media"
+```
+
+|키워드||설명|
+| ---: | :--: | --- |
+|url|필요|웹훅을 수신할 HTTP 엔드포인트 URL 주소입니다. `{action}`, `{path}` 등의 템플릿 변수를 포함할 수 있습니다.|
+|method||HTTP 메서드입니다. (기본값: `POST`, 대소문자 무관)|
+|headers||요청 헤더 딕셔너리입니다. 지정하지 않으면 글로벌 `http.headers`가 기본 적용됩니다.|
+|payload||전송할 본문(Body) 데이터입니다. 딕셔너리/리스트(JSON) 또는 문자열(Text) 형태로 지정할 수 있습니다. 생략 시 전체 `ActivityData` JSON이 전송됩니다.|
+|timeout||요청 타임아웃(초)입니다. 지정하지 않으면 글로벌 `http.timeout` (기본값: 60초)을 사용합니다.|
+|mappings||`targets`에서 지정한 경로를 변환합니다.|
+
+- `payload`를 생략하면 `ActivityData`의 모든 필드가 포함된 JSON 객체로 전송됩니다.
+- `payload` 또는 `url`에 다음과 같은 템플릿 변수를 사용할 수 있습니다:
+  - `{action}`: 발생한 액션 (`create`, `move`, `delete`, `edit`, `rename`, `restore` 등)
+  - `{target[0]}`: 파일 또는 폴더명
+  - `{target[1]}`: Google Drive 아이템 ID
+  - `{target[2]}`: MIME 타입
+  - `{path}`: 매핑이 적용된 대상 경로
+  - `{removed_path}`: 이동/삭제 시 매핑이 적용된 이전 경로
+  - `{is_folder}`: 폴더 여부 (`true`/`false`)
+  - `{size}`: 파일 크기 (바이트)
+  - `{timestamp_text}`: 발생 일시 문자열
+  - `{link}`: Google Drive 웹 링크
+  - 그 외 사용 가능한 추가 템플릿 변수는 `gd_poller/models.py`의 `ActivityData` 모델을 참고하세요.
 
 ### Global 설정
 
@@ -446,6 +490,7 @@ buffer_interval: 30
 
 google_drive: ...
 pollers: ...
+http: ...
 logging: ...
 ```
 
@@ -454,6 +499,21 @@ logging: ...
 - 기본 설정
 - Global 설정
 - Poller 설정
+
+### Http 설정
+
+```yaml
+http:
+  timeout: 60.0
+  headers:
+    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+```
+
+|키워드||설명|
+| ---: | :--: | --- |
+|timeout||기본 HTTP 요청 타임아웃(초)입니다. 지정하지 않을 경우 기본값은 60.0초입니다.|
+|headers||기본 HTTP 요청 헤더입니다.|
+
 
 ### Logging 설정
 

@@ -7,6 +7,8 @@ from typing import Any, Sequence
 from pathlib import Path
 from collections import OrderedDict
 
+import httpx
+
 from .apis import (
     Rclone,
     Plex,
@@ -18,6 +20,7 @@ from .apis import (
     Stash,
 )
 from .helpers.helpers import parse_mappings, map_path, watch_process
+from .http import get_default_headers, get_default_timeout
 from .models import ActivityData
 
 
@@ -805,3 +808,119 @@ class StashDispatcher(BufferedDispatcher):
             result = await self.stash.metadata_scan(paths=(self.get_mapping_path(parent),))
             status_code = result.get("status_code")
             logger.info(f"Stash: updated_parent='{parent}' {status_code=}")
+
+
+class WebhookDispatcher(Dispatcher):
+
+    def __init__(
+        self,
+        url: str,
+        method: str = "POST",
+        headers: dict[str, str] | None = None,
+        payload: dict[str, Any] | str | None = None,
+        timeout: float | None = None,
+        **kwds: Any,
+    ) -> None:
+        super().__init__(**kwds)
+        self.url = url
+        self.method = method.upper()
+        self._headers = headers
+        self.payload = payload
+        self._timeout = timeout
+        self.client: httpx.AsyncClient | None = None
+
+    @property
+    def headers(self) -> dict[str, str]:
+        client_headers = dict(get_default_headers())
+        if self._headers:
+            client_headers.update(self._headers)
+        return client_headers
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout if self._timeout is not None else get_default_timeout()
+
+    async def on_start(self) -> None:
+        if self.client is None or self.client.is_closed:
+            self.client = httpx.AsyncClient(
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+
+    async def on_stop(self) -> None:
+        if self.client and not self.client.is_closed:
+            await self.client.aclose()
+            self.client = None
+
+    def _render_payload(self, template: Any, context: dict[str, Any]) -> Any:
+        if isinstance(template, str):
+            try:
+                return template.format(**context)
+            except Exception:
+                return template
+        elif isinstance(template, dict):
+            return {k: self._render_payload(v, context) for k, v in template.items()}
+        elif isinstance(template, list):
+            return [self._render_payload(elem, context) for elem in template]
+        return template
+
+    async def dispatch(self, data: ActivityData) -> None:
+        if not data.path and not data.removed_path:
+            return
+
+        context = data.model_dump(mode="json")
+        if data.path:
+            context["path"] = self.get_mapping_path(data.path)
+        if data.removed_path:
+            context["removed_path"] = self.get_mapping_path(data.removed_path)
+
+        payload = (
+            self._render_payload(self.payload, context)
+            if self.payload is not None
+            else context
+        )
+
+        target_url = self.url
+        if "{" in target_url:
+            try:
+                target_url = target_url.format(**context)
+            except Exception:
+                pass
+
+        req_kwds: dict[str, Any] = {"headers": self.headers}
+        if self.method in ("POST", "PUT", "PATCH"):
+            if isinstance(payload, (dict, list)):
+                req_kwds["json"] = payload
+            else:
+                req_kwds["content"] = str(payload)
+
+        client = self.client
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(headers=self.headers, timeout=self.timeout)
+            should_close = True
+        else:
+            should_close = False
+
+        target_name = (
+            (data.target[0] if data.target else "")
+            or data.path
+            or data.removed_path
+            or target_url
+        )
+        try:
+            resp = await client.request(self.method, target_url, **req_kwds)
+            logger.info(
+                f'Webhook: [{self.method}] target="{target_name}" status_code={resp.status_code}'
+            )
+            if not 200 <= resp.status_code < 300:
+                logger.warning(
+                    f'Webhook returned status {resp.status_code} for "{target_url}": {resp.text[:200]}'
+                )
+        except Exception as e:
+            logger.error(f'Webhook request failed: "{target_url}" - {repr(e)}')
+        finally:
+            if should_close:
+                await client.aclose()
+
+
+

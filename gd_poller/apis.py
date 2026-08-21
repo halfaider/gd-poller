@@ -12,7 +12,12 @@ import httpx
 
 from . import __version__
 from .helpers.helpers import get_bool, get_int
-from .http import parse_response, get_default_headers, async_apply_cache
+from .http import (
+    parse_response,
+    get_default_headers,
+    get_default_timeout,
+    async_apply_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +141,7 @@ class Api:
         cache_maxsize: int = 64,
         cache_ttl: int = 600,
         headers: dict | None = None,
+        timeout: float | None = None,
     ) -> None:
         self.url = url.strip().strip("/")
         self._cache_enable = cache_enable
@@ -144,7 +150,8 @@ class Api:
         client_headers = dict(get_default_headers())
         if headers:
             client_headers.update(headers)
-        self._client = httpx.AsyncClient(timeout=60.0, headers=client_headers)
+        client_timeout = timeout if timeout is not None else get_default_timeout()
+        self._client = httpx.AsyncClient(timeout=client_timeout, headers=client_headers)
         self._semaphore = asyncio.Semaphore(5)
 
     @property

@@ -9,7 +9,7 @@ from .apis import GoogleDrive
 from .pollers import ActivityPoller
 from .helpers.helpers import check_tasks
 from .helpers.loggers import set_logger
-from .http import set_default_headers
+from .http import set_default_headers, set_default_timeout
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ async def async_main(settings_file: str | None = None) -> None:
             logger.error(e)
             return
         set_default_headers(settings.http.headers)
+        set_default_timeout(settings.http.timeout)
         set_logger(
             level=settings.logging.level,
             format=settings.logging.format,

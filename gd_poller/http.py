@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_HEADERS: dict[str, str] = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 }
+DEFAULT_TIMEOUT: float = 60.0
 
 
 def set_default_headers(headers: dict[str, str] | None) -> None:
@@ -19,6 +20,16 @@ def set_default_headers(headers: dict[str, str] | None) -> None:
 
 def get_default_headers() -> dict[str, str]:
     return DEFAULT_HEADERS
+
+
+def set_default_timeout(timeout: float | None) -> None:
+    global DEFAULT_TIMEOUT
+    if timeout is not None:
+        DEFAULT_TIMEOUT = float(timeout)
+
+
+def get_default_timeout() -> float:
+    return DEFAULT_TIMEOUT
 
 
 def parse_response(response: httpx.Response) -> dict[str, Any]:
